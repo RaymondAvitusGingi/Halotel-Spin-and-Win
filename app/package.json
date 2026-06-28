@@ -1,0 +1,33 @@
+{
+  "name": "app",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "firebase": "^12.15.0",
+    "vue": "^3.5.38"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.1",
+    "@types/node": "^24.13.2",
+    "@vitejs/plugin-vue": "^6.0.7",
+    "@vue/tsconfig": "^0.9.1",
+    "autoprefixer": "^10.5.2",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "gsap": "^3.15.0",
+    "lucide-vue-next": "^1.0.0",
+    "postcss": "^8.5.15",
+    "radix-vue": "^1.9.17",
+    "tailwind-merge": "^3.6.0",
+    "tailwindcss": "^4.3.1",
+    "typescript": "~6.0.2",
+    "vite": "^8.1.0",
+    "vue-tsc": "^3.3.5"
+  }
+}
