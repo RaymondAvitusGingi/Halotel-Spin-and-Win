@@ -8,6 +8,7 @@ import { Loader2 } from 'lucide-vue-next';
 import { db } from '@/firebase';
 import PrizeWheel from '@/components/PrizeWheel.vue';
 import ConfettiField from '@/components/ConfettiField.vue';
+import WinCelebrationModal from '@/components/WinCelebrationModal.vue';
 import { usePrizeStore, computeProbability } from '@/hooks/usePrizeStore';
 import type { Prize } from '@/hooks/usePrizeStore';
 import type { SpinPhase } from '@/hooks/useWheelState';
@@ -168,6 +169,16 @@ function onWheelSpin() {
   emit('spin');
 }
 
+// ── Win celebration modal ────────────────────────────────────
+const celebration = ref<{ winnerName: string; prize: Prize; prizeImg: string | null } | null>(null);
+
+function dismissCelebration() {
+  celebration.value = null;
+  const next = participants.value.find(q => q.status === 'pending');
+  selectedId.value = next?.id ?? null;
+  emit('spinAgain');
+}
+
 // ── Capture result ───────────────────────────────────────────
 watch(() => props.winResult, async (prize) => {
   if (!prize) return;
@@ -185,12 +196,21 @@ watch(() => props.winResult, async (prize) => {
     });
   } catch { /* silent */ }
 
-  // Auto-advance to next pending participant after 2.5 s
-  setTimeout(() => {
-    const next = participants.value.find(q => q.status === 'pending');
-    selectedId.value = next?.id ?? null;
-    emit('spinAgain');
-  }, 2500);
+  if (prize.claimable) {
+    // Show celebration modal for winners; auto-advance happens on dismiss
+    celebration.value = {
+      winnerName: p.name,
+      prize,
+      prizeImg: prizeImgs[prize.id] ?? null,
+    };
+  } else {
+    // No win — auto-advance after 2.5 s
+    setTimeout(() => {
+      const next = participants.value.find(q => q.status === 'pending');
+      selectedId.value = next?.id ?? null;
+      emit('spinAgain');
+    }, 2500);
+  }
 });
 
 // ── Highlight the recently won prize in the prize list ───────
@@ -201,6 +221,15 @@ const lastWonPrizeId = computed(() => {
 </script>
 
 <template>
+  <!-- Win celebration modal -->
+  <WinCelebrationModal
+    v-if="celebration"
+    :winnerName="celebration.winnerName"
+    :prize="celebration.prize"
+    :prizeImg="celebration.prizeImg"
+    @close="dismissCelebration"
+  />
+
   <!-- ══════════════════════════════════════════════
        HERO  ─  3 / 6 / 3  grid
   ══════════════════════════════════════════════ -->
