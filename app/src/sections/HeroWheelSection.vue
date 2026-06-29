@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { reactive, ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import {
-  addDoc, updateDoc, deleteDoc, doc, collection,
+  addDoc, updateDoc, doc, collection,
   serverTimestamp, query, orderBy, where, onSnapshot, Timestamp,
 } from 'firebase/firestore';
 import { Loader2 } from 'lucide-vue-next';
@@ -9,6 +9,7 @@ import { db } from '@/firebase';
 import PrizeWheel from '@/components/PrizeWheel.vue';
 import ConfettiField from '@/components/ConfettiField.vue';
 import WinCelebrationModal from '@/components/WinCelebrationModal.vue';
+import RecentWinnersTicker from '@/components/RecentWinnersTicker.vue';
 import { usePrizeStore } from '@/hooks/usePrizeStore';
 import type { Prize } from '@/hooks/usePrizeStore';
 import type { SpinPhase } from '@/hooks/useWheelState';
@@ -32,6 +33,7 @@ const { prizes } = usePrizeStore();
 
 const prizeImgs: Record<string, string> = {
   bracelets: braceletImg, cap: capImg, pen_keyholder: penKeyholderImg,
+  pen: penKeyholderImg, key_holder: penKeyholderImg,
   voucher_500: voucher500Img, voucher_2000: voucher2000Img, voucher_5000: voucher5000Img,
 };
 
@@ -47,10 +49,12 @@ interface Participant {
   prizeName: string | null;
   isClaimable: boolean | null;
   hasRetried: boolean;
+  timestamp?: any;
 }
 
 const participants  = ref<Participant[]>([]);
 const selectedId    = ref<string | null>(null);
+const showRegistrationModal = ref(false);
 const addSubmitting = ref(false);
 const addError      = ref('');
 const addForm       = reactive({ name: '', phone: '+255 ', gender: '' as '' | 'Mwanaume' | 'Mwanamke' });
@@ -98,6 +102,7 @@ onMounted(() => {
         prizeName:   data.prizeName ?? null,
         isClaimable: data.isClaimable ?? null,
         hasRetried:  existing?.hasRetried ?? false,
+        timestamp:   data.timestamp,
       };
     });
 
@@ -113,7 +118,7 @@ onMounted(() => {
 
 onUnmounted(() => unsub?.());
 
-// ── Add participant ──────────────────────────────────────────
+// ── Add participant & Auto Spin ─────────────────────────────
 async function addParticipant() {
   addError.value = '';
   const name  = addForm.name.trim();
@@ -124,51 +129,38 @@ async function addParticipant() {
 
   addSubmitting.value = true;
   try {
-    // Write to Firestore — snapshot listener will add them to participants[] automatically
     const docRef = await addDoc(collection(db, 'spins'), {
       name, phone, gender: addForm.gender,
       timestamp: serverTimestamp(),
       prizeId: null, prizeName: null, isClaimable: null,
     });
 
-    // Auto-select if nothing pending is selected
-    if (!selectedId.value || selectedP.value?.status !== 'pending') {
-      selectedId.value = docRef.id;
-      if (props.phase === 'stopped') emit('spinAgain');
-    }
-
+    selectedId.value = docRef.id;
+    showRegistrationModal.value = false;
+    
+    // reset form
     addForm.name = ''; addForm.phone = '+255 '; addForm.gender = '';
+
+    // Wait for the snapshot to pick it up so we can spin optimistically
+    setTimeout(() => {
+      const p = participants.value.find(q => q.id === docRef.id);
+      if (p) p.status = 'spinning';
+      emit('spin');
+    }, 100);
+
   } catch {
     addError.value = 'Hitilafu ya mtandao. Jaribu tena.';
   }
   addSubmitting.value = false;
 }
 
-// ── Participant selection ────────────────────────────────────
-function selectParticipant(id: string) {
-  const p = participants.value.find(p => p.id === id);
-  if (!p || p.status === 'spinning') return;
-  selectedId.value = id;
-  if (props.phase === 'stopped') emit('spinAgain');
-}
+// ── Participant selection (removed since we have a popup flow) ────────────────────────────────────
 
-async function removeParticipant(id: string, event: MouseEvent) {
-  event.stopPropagation();
-  if (selectedId.value === id) {
-    selectedId.value = participants.value.find(p => p.status === 'pending' && p.id !== id)?.id ?? null;
-  }
-  try {
-    // Delete from Firestore — snapshot listener removes them from participants[] automatically
-    await deleteDoc(doc(db, 'spins', id));
-  } catch { /* silent */ }
-}
 
 // ── Spin trigger ─────────────────────────────────────────────
 function onWheelSpin() {
-  const p = selectedP.value;
-  if (!p || p.status !== 'pending') return;
-  p.status = 'spinning'; // optimistic local update; Firestore gets updated on result
-  emit('spin');
+  if (props.phase === 'spinning') return;
+  showRegistrationModal.value = true;
 }
 
 // ── Win celebration modal & retry toast ─────────────────────
@@ -211,27 +203,21 @@ watch(() => props.winResult, async (prize) => {
     });
   } catch { /* silent */ }
 
-  if (pType === 'win') {
-    // Show celebration modal; auto-advance happens on dismiss
+  if (pType === 'win' || pType === 'thanks') {
+    // Show celebration modal for both wins and losses
     celebration.value = {
       winnerName: p.name,
       prize,
       prizeImg: prizeImgs[prize.id] ?? null,
     };
   } else {
-    // thanks / exhausted retry — auto-advance after 2.5 s
+    // exhausted retry — auto-advance after 2.5 s
     setTimeout(() => {
       const next = participants.value.find(q => q.status === 'pending');
       selectedId.value = next?.id ?? null;
       emit('spinAgain');
     }, 2500);
   }
-});
-
-// ── Highlight the recently won prize in the prize list ───────
-const lastWonPrizeId = computed(() => {
-  const active = participants.value.find(p => p.status === 'spinning' || p.status === 'won');
-  return active?.prizeId ?? null;
 });
 </script>
 
@@ -261,58 +247,151 @@ const lastWonPrizeId = computed(() => {
     @close="dismissCelebration"
   />
 
-  <!-- ══════════════════════════════════════════════
-       HERO  ─  3 / 6 / 3  grid
-  ══════════════════════════════════════════════ -->
-  <section id="hero" class="relative overflow-hidden" style="min-height:calc(100vh - 64px);background:#09090D;">
-    <ConfettiField :count="40" />
-    <div class="absolute inset-0 pointer-events-none" style="background:radial-gradient(ellipse 70% 60% at 50% 10%, rgba(242,101,34,0.1) 0%, transparent 70%);"/>
+  <!-- Registration Modal -->
+  <Teleport to="body">
+    <Transition name="fade">
+      <div v-if="showRegistrationModal" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+        <div class="bg-gradient-to-b from-[#ff8c1a] to-[#e65c00] w-full max-w-sm rounded-[24px] p-1 shadow-2xl relative overflow-hidden" style="border: 2px solid rgba(255,255,255,0.2);">
+          <!-- Inner card — Orange theme -->
+          <div class="rounded-[20px] p-6 relative z-10 flex flex-col items-center" style="background: linear-gradient(160deg, #F26522, #d94a00);">
+            
+            <button @click="showRegistrationModal = false" class="absolute top-4 right-4 text-white/70 hover:text-white transition-colors">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
 
-    <div class="relative z-10 flex flex-col justify-center h-full px-4 max-w-[1440px] mx-auto py-6" style="min-height:calc(100vh - 64px);">
-      <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center">
+            <img src="@/assets/Halote logo white-02.svg" alt="Halotel" class="h-8 mb-4" />
+            
+            <h2 class="text-white font-black text-xl mb-6 text-center" style="letter-spacing:1px; text-transform:uppercase; text-shadow: 0 2px 4px rgba(0,0,0,0.3);">
+              Ingiza taarifa <br/>
+              <span style="color: #FFD700; text-shadow: 0 1px 3px rgba(0,0,0,0.4);">kuanza spin</span>
+            </h2>
 
-        <!-- ══════════════════════════════════════════
-             LEFT  —  ZAWADI (prizes)
-        ══════════════════════════════════════════ -->
-        <div class="hidden lg:flex lg:col-span-3 flex-col gap-3" style="max-height:calc(100vh - 130px);">
-
-          <!-- Panel header -->
-          <div class="panel-header">
-            <div>
-              <div class="panel-title">ZAWADI</div>
-              <div class="panel-sub">{{ prizes.filter(p => p.prizeType === 'win').length }} prizes available</div>
-            </div>
-            <div class="panel-header-icon">🏆</div>
-          </div>
-
-          <!-- Prize list (win-type only — retry/thanks hidden from customers) -->
-          <div class="panel-card flex-1" style="overflow-y:auto;padding:0;">
-            <div
-              v-for="prize in prizes.filter(p => p.prizeType === 'win')" :key="prize.id"
-              class="prize-row"
-              :class="{ 'prize-row--lit': lastWonPrizeId === prize.id }"
-            >
-              <!-- Color swatch -->
-              <div class="prize-swatch" :style="{ background: prize.color }" />
-
-              <!-- Prize image thumb -->
-              <div class="prize-thumb-wrap">
-                <img v-if="prizeImgs[prize.id]" :src="prizeImgs[prize.id]" :alt="prize.name" class="prize-thumb-img" />
-                <span v-else style="font-size:16px;">{{ prize.id === 'jaribu' ? '🔄' : '🙏' }}</span>
+            <div class="w-full flex flex-col gap-4">
+              <div>
+                <label class="block text-white text-[11px] font-bold mb-1 uppercase tracking-wider" style="text-shadow: 0 1px 2px rgba(0,0,0,0.2);">Jina</label>
+                <input v-model="addForm.name" class="w-full rounded-xl px-4 py-3 text-[#333] font-semibold placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#FFD700] transition-all" style="background: rgba(255,255,255,0.9); border: 3px solid #c24200;" placeholder="Jina lako..." />
               </div>
 
-              <!-- Info -->
-              <div class="flex-1 min-w-0">
-                <div class="prize-name">{{ prize.name }}</div>
+              <div>
+                <label class="block text-white text-[11px] font-bold mb-1 uppercase tracking-wider" style="text-shadow: 0 1px 2px rgba(0,0,0,0.2);">Namba ya simu</label>
+                <div class="relative flex items-center">
+                  <span class="absolute left-4 text-[16px]">🇹🇿</span>
+                  <input v-model="addForm.phone" type="tel" class="w-full rounded-xl pl-12 pr-4 py-3 text-[#333] font-semibold placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#FFD700] transition-all" style="background: rgba(255,255,255,0.9); border: 3px solid #c24200;" placeholder="+255..." />
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-white text-[11px] font-bold mb-1 uppercase tracking-wider" style="text-shadow: 0 1px 2px rgba(0,0,0,0.2);">Jinsia</label>
+                <div class="flex gap-2">
+                  <button v-for="g in ['Mwanaume', 'Mwanamke']" :key="g"
+                    class="flex-1 py-2.5 rounded-xl text-sm font-bold border-2 transition-all"
+                    :class="addForm.gender === g ? 'bg-white text-[#E65C00] border-white shadow-lg' : 'bg-transparent text-white border-white/40 hover:border-white/70'"
+                    @click="addForm.gender = g as any"
+                  >
+                    {{ g === 'Mwanaume' ? '♂ Mwanaume' : '♀ Mwanamke' }}
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="addError" class="bg-red-500/20 text-white text-[12px] font-bold text-center py-2 px-3 rounded-lg border border-red-400/30">{{ addError }}</div>
+
+              <button 
+                @click="addParticipant" 
+                :disabled="addSubmitting"
+                class="w-full mt-2 rounded-full py-4 flex items-center justify-center font-black text-[16px] tracking-wide transition-transform hover:scale-[1.02] active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed"
+                style="background: white; color: #E65C00; box-shadow: 0 4px 20px rgba(0,0,0,0.25);"
+              >
+                <Loader2 v-if="addSubmitting" class="w-5 h-5 animate-spin" />
+                <span v-else>SUBMIT & SPIN</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
+
+  <!-- ══════════════════════════════════════════════
+       HERO  ─  4 / 5 / 3  grid
+  ══════════════════════════════════════════════ -->
+  <section id="hero" class="relative overflow-hidden" style="min-height:calc(100vh - 64px);background:transparent;">
+    <!-- Confetti & Ornaments -->
+    <ConfettiField :count="40" />
+    <div class="absolute inset-0 pointer-events-none" style="background:radial-gradient(ellipse 70% 60% at 50% 10%, rgba(242,101,34,0.1) 0%, transparent 70%);"/>
+    
+    <!-- Floating Gifts Removed -->
+    <div class="absolute right-[12%] top-[20%] pointer-events-none animate-pulse" style="animation-duration: 2s; font-size: 40px; opacity: 0.8;">✨</div>
+    <div class="absolute left-[20%] bottom-[20%] pointer-events-none animate-pulse" style="animation-duration: 2.5s; font-size: 50px; opacity: 0.7;">🎉</div>
+
+    <div class="relative z-30 w-full">
+      <RecentWinnersTicker :participants="participants" />
+    </div>
+
+    <div class="relative z-10 flex flex-col justify-center h-full px-4 max-w-[1440px] mx-auto py-2" style="height:calc(100vh - 64px); max-height:calc(100vh - 64px); overflow:hidden;">
+      
+      <!-- Single Row 3-Column Layout -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch h-full relative z-20" style="padding-top: 10px; padding-bottom: 10px;">
+
+        <!-- ══════════════════════════════════════════
+             LEFT COLUMN
+        ══════════════════════════════════════════ -->
+        <div class="hidden lg:flex lg:col-span-4 flex-col justify-between h-full overflow-hidden">
+          
+          <!-- Top: Spin & Win Title -->
+          <div class="flex flex-col items-center gap-2 mb-2 w-full lg:w-max">
+            <div class="flex justify-center mb-1">
+              <img src="@/assets/Halote logo white-02.svg" alt="Halotel" style="height:28px;" />
+            </div>
+            
+            <h1 class="font-black text-white text-center leading-[0.85] tracking-tighter uppercase" style="font-size: clamp(65px, 8vw, 100px); -webkit-text-stroke: 4px #ff6a00; text-shadow: 0 1px 0 #d94a00, 0 2px 0 #d94a00, 0 3px 0 #d94a00, 0 4px 0 #c24200, 0 5px 0 #c24200, 0 6px 0 #c24200, 0 7px 0 #ab3a00, 0 8px 0 #ab3a00, 0 9px 0 #ab3a00, 0 10px 0 #8c2f00, 0 11px 0 #8c2f00, 0 15px 20px rgba(0,0,0,0.6);">
+              SPIN <br/>
+              & WIN
+            </h1>
+
+            <div class="relative mt-2 flex justify-center items-center px-4 w-full">
+              <!-- Ribbon tails -->
+              <div class="absolute left-0 top-[60%] -translate-y-1/2 w-5 h-8 bg-[#a83300]" style="clip-path: polygon(0 50%, 100% 0, 100% 100%);"></div>
+              <div class="absolute right-0 top-[60%] -translate-y-1/2 w-5 h-8 bg-[#a83300]" style="clip-path: polygon(0 0, 100% 50%, 0 100%);"></div>
+              
+              <!-- Ribbon body -->
+              <div class="relative z-10 px-6 py-1.5 bg-gradient-to-b from-[#ff8c1a] to-[#e65c00] rounded-[2px] font-black text-white shadow-lg border-b-2 border-[#b33c00] w-full text-center whitespace-nowrap" style="font-size:14px; letter-spacing:1px; transform: scaleY(1.05);">
+                MSIMU WA SABASABA
+              </div>
+            </div>
+
+            <div class="mt-2 text-white font-bold tracking-wide uppercase text-center" style="font-size: 13px; text-shadow: 0 2px 4px rgba(0,0,0,0.5);">
+              SPIN, SHINDA NA HALOTEL!
+            </div>
+          </div>
+
+          <!-- Bottom: Zawadi Mini Card -->
+          <div class="panel-card flex flex-col mt-auto mb-6" style="height:170px; background:#E65C00; border: 2px solid rgba(255,255,255,0.2); padding: 8px;">
+            <div class="panel-header mb-2 flex-shrink-0">
+              <div class="flex items-center gap-2">
+                <div class="panel-header-icon text-sm" style="color:#FFD700;">🏆</div>
+                <div class="panel-title" style="font-size:11px;">ZAWADI</div>
+              </div>
+            </div>
+            <div class="flex-1 pr-1">
+              <div class="grid grid-cols-4 gap-2 text-white">
+                <template v-for="prize in prizes.filter(p => p.prizeType === 'win')" :key="prize.id">
+                  <div class="flex items-center gap-2 bg-black/10 rounded p-1.5 border border-white/5">
+                    <div class="prize-thumb-wrap" style="width:20px;height:20px;background:rgba(255,255,255,0.1); border-radius:4px; flex-shrink:0;">
+                      <img v-if="prizeImgs[prize.id]" :src="prizeImgs[prize.id]" class="w-full h-full object-contain" />
+                      <span v-else style="font-size:10px;">🎁</span>
+                    </div>
+                    <span class="font-bold leading-tight line-clamp-1" style="font-size:9px;">{{ prize.name }}</span>
+                  </div>
+                </template>
               </div>
             </div>
           </div>
         </div>
 
         <!-- ══════════════════════════════════════════
-             CENTER  —  WHEEL
+             CENTER COLUMN — WHEEL
         ══════════════════════════════════════════ -->
-        <div class="lg:col-span-6 flex justify-center items-center">
+        <div class="lg:col-span-5 flex justify-center items-center h-full relative">
           <PrizeWheel
             :rotation="rotation"
             :phase="phase"
@@ -322,183 +401,73 @@ const lastWonPrizeId = computed(() => {
         </div>
 
         <!-- ══════════════════════════════════════════
-             RIGHT  —  WASHIRIKI (participants)
+             RIGHT COLUMN — 77 LOGO + HOW IT WORKS
         ══════════════════════════════════════════ -->
-        <div class="hidden lg:flex lg:col-span-3 flex-col gap-3" style="max-height:calc(100vh - 130px);">
+        <div class="hidden lg:flex lg:col-span-3 flex-col justify-between h-full overflow-hidden">
 
-          <!-- Panel header -->
-          <div class="panel-header">
-            <div>
-              <div class="panel-title">WASHIRIKI</div>
-              <div class="panel-sub">{{ participants.length }} wamejiunga</div>
-            </div>
-            <div class="panel-header-icon" style="font-size:18px;">
-              <span v-if="selectedP && selectedP.status === 'pending'" style="color:#F26522">▶ Ready</span>
-              <span v-else-if="selectedP?.status === 'spinning'" style="color:#F26522">⏳</span>
-              <span v-else>👤</span>
-            </div>
+          <!-- Top: Big 77 Heart Logo (mirrors SPIN & WIN position) -->
+          <div class="flex flex-col items-center gap-2 mb-2">
+            <img src="@/assets/Artboard 1.png" alt="Halotel 77" style="width: clamp(200px, 22vw, 300px); height: auto; filter: brightness(0) invert(1) drop-shadow(0 4px 12px rgba(0,0,0,0.3));" />
           </div>
 
-          <!-- Add form -->
-          <div class="panel-card">
-            <div class="add-form-grid">
-              <input v-model="addForm.name"  class="add-input" placeholder="Jina kamili..." @keydown.enter="addParticipant" />
-              <div class="phone-wrap">
-                <span class="phone-flag">🇹🇿</span>
-                <input v-model="addForm.phone" class="add-input add-input--phone" placeholder="+255 7xx xxx xxx" type="tel" @keydown.enter="addParticipant" />
-              </div>
+          <!-- Bottom: Jinsi Inavyofanya Kazi -->
+          <div class="panel-card flex-shrink-0 flex flex-col justify-center mb-6" style="height:170px; background:#E65C00; border: 2px solid rgba(255,255,255,0.2); padding: 10px;">
+            <div class="panel-header mb-2">
+              <div class="panel-title" style="font-size:11px;">JINSI INAVYOFANYA KAZI</div>
             </div>
-            <div class="add-form-row2">
-              <button
-                v-for="g in ['Mwanaume', 'Mwanamke']" :key="g"
-                class="gender-btn"
-                :class="{ 'gender-btn--active': addForm.gender === g }"
-                @click="addForm.gender = g as any"
-              >{{ g === 'Mwanaume' ? '♂ M' : '♀ F' }}</button>
-              <button class="add-btn" @click="addParticipant" :disabled="addSubmitting">
-                <Loader2 v-if="addSubmitting" class="w-3.5 h-3.5" style="animation:spin-anim 0.8s linear infinite;" />
-                <template v-else>+ ONGEZA</template>
-              </button>
-            </div>
-            <div v-if="addError" class="add-error">{{ addError }}</div>
-          </div>
+            <div class="flex justify-between gap-2 text-center items-start mt-1 relative">
+              <!-- Dividers -->
+              <div class="absolute left-1/3 top-2 bottom-4 w-px bg-white/20"></div>
+              <div class="absolute left-2/3 top-2 bottom-4 w-px bg-white/20"></div>
 
-          <!-- Participant list -->
-          <div class="panel-card flex-1" style="overflow-y:auto;padding:0;">
-            <!-- Empty state -->
-            <div v-if="participants.length === 0" class="empty-state">
-              <div style="font-size:32px;margin-bottom:8px;">👆</div>
-              <div style="font-weight:700;color:rgba(255,255,255,0.6);font-size:13px;margin-bottom:4px;">Ongeza mshiriki</div>
-              <div style="font-size:11px;color:rgba(255,255,255,0.3);">Jaza fomu halafu bonyeza + ONGEZA</div>
-            </div>
-
-            <!-- Participant cards (max 5 shown) -->
-            <div
-              v-for="(p, idx) in participants.slice(0, 5)" :key="p.id"
-              class="p-card"
-              :class="{
-                'p-card--selected': p.id === selectedId && p.status === 'pending',
-                'p-card--spinning': p.status === 'spinning',
-                'p-card--won':     p.status === 'won',
-                'p-card--no-win':  p.status === 'no_win',
-              }"
-              @click="selectParticipant(p.id)"
-            >
-              <!-- Position number -->
-              <div class="p-num">{{ idx + 1 }}</div>
-
-              <!-- Avatar -->
-              <div
-                class="p-avatar"
-                :style="{ background: p.gender === 'Mwanaume' ? 'linear-gradient(135deg,#3b82f6,#1d4ed8)' : 'linear-gradient(135deg,#ec4899,#9d174d)' }"
-              >
-                <span>{{ p.name.charAt(0).toUpperCase() }}</span>
-                <!-- Selected ring -->
-                <div v-if="p.id === selectedId && p.status === 'pending'" class="avatar-ring" />
-              </div>
-
-              <!-- Info -->
-              <div class="p-info">
-                <div class="p-name">{{ p.name }}</div>
-                <!-- Prize inline — replaces phone once spin is done -->
-                <div v-if="p.status === 'won'" class="p-result-inline p-result-inline--win">
-                  🏆 {{ p.prizeName }}
+              <!-- Step 1 -->
+              <div class="flex-1 flex flex-col items-center px-1">
+                <div class="relative mb-2">
+                  <div class="absolute -left-3 -top-1 w-4 h-4 rounded-full bg-[#E65C00] shadow-md flex items-center justify-center text-[10px] font-bold text-white border border-white/20 z-10">1</div>
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="opacity-90">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle>
+                  </svg>
                 </div>
-                <div v-else-if="p.status === 'no_win'" class="p-result-inline p-result-inline--loss">
-                  🔄 Jaribu tena
+                <h3 class="text-white font-bold leading-tight" style="font-size:10px;">Jaza formu</h3>
+                <p class="text-white/80 mt-1 leading-tight" style="font-size:8px;">Jaza taarifa zako<br/>kwenye formu.</p>
+              </div>
+              
+              <!-- Step 2 -->
+              <div class="flex-1 flex flex-col items-center px-1">
+                <div class="relative mb-2">
+                  <div class="absolute -left-3 -top-1 w-4 h-4 rounded-full bg-[#E65C00] shadow-md flex items-center justify-center text-[10px] font-bold text-white border border-white/20 z-10">2</div>
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="opacity-90">
+                    <circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3"></circle><line x1="12" y1="2" x2="12" y2="9"></line><line x1="12" y1="15" x2="12" y2="22"></line><line x1="22" y1="12" x2="15" y2="12"></line><line x1="9" y1="12" x2="2" y2="12"></line><line x1="19.07" y1="4.93" x2="14.12" y2="9.88"></line><line x1="9.88" y1="14.12" x2="4.93" y2="19.07"></line><line x1="4.93" y1="4.93" x2="9.88" y2="9.88"></line><line x1="14.12" y1="14.12" x2="19.07" y2="19.07"></line>
+                  </svg>
                 </div>
-                <div v-else-if="p.status === 'spinning'" class="p-result-inline p-result-inline--spinning">
-                  ⏳ Inazunguka…
-                </div>
-                <div v-else class="p-phone">{{ p.phone }}</div>
+                <h3 class="text-white font-bold leading-tight" style="font-size:10px;">Spin</h3>
+                <p class="text-white/80 mt-1 leading-tight" style="font-size:8px;">Bonyeza kitufe cha<br/>SPIN na ujaribu.</p>
               </div>
 
-              <!-- Status badge -->
-              <div class="p-status-wrap">
-                <button
-                  v-if="p.status === 'pending'"
-                  class="p-badge p-badge--pending"
-                  :style="p.id === selectedId ? 'cursor:pointer;' : 'cursor:default;opacity:0.6;'"
-                  @click.stop="p.id === selectedId ? onWheelSpin() : selectParticipant(p.id)"
-                >{{ p.id === selectedId ? '▶ SPIN' : 'Subiri' }}</button>
-                <div v-else-if="p.status === 'spinning'" class="p-badge p-badge--spinning">⏳</div>
-                <div v-else-if="p.status === 'won'" class="p-badge p-badge--won">🏆</div>
-                <div v-else class="p-badge p-badge--lost">🔄</div>
-
-                <!-- Delete -->
-                <button
-                  v-if="p.status !== 'spinning'"
-                  class="p-delete"
-                  @click="removeParticipant(p.id, $event)"
-                >×</button>
+              <!-- Step 3 -->
+              <div class="flex-1 flex flex-col items-center px-1">
+                <div class="relative mb-2">
+                  <div class="absolute -left-3 -top-1 w-4 h-4 rounded-full bg-[#E65C00] shadow-md flex items-center justify-center text-[10px] font-bold text-white border border-white/20 z-10">3</div>
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="opacity-90">
+                    <rect x="3" y="8" width="18" height="4" rx="1"></rect><path d="M12 8v13"></path><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"></path><path d="M7.5 8a2.5 2.5 0 0 1 0-5A4.8 8 0 0 1 12 8a4.8 8 0 0 1 4.5-5 2.5 2.5 0 0 1 0 5"></path>
+                  </svg>
+                </div>
+                <h3 class="text-white font-bold leading-tight" style="font-size:10px;">Shinda</h3>
+                <p class="text-white/80 mt-1 leading-tight" style="font-size:8px;">Ukishinda, zawadi<br/>itatumwa kwako.</p>
               </div>
             </div>
-
           </div>
 
-          <!-- View all link -->
-          <RouterLink
-            v-if="participants.length > 0"
-            to="/washiriki"
-            class="view-all-btn"
-          >
-            <span>Orodha Kamili</span>
-            <span class="view-all-count">{{ participants.length }}</span>
-            <span style="margin-left:auto;font-size:13px;">→</span>
-          </RouterLink>
-
-          <!-- Spin hint at bottom -->
-          <div v-if="selectedP && selectedP.status === 'pending'" class="spin-hint">
-            ▶ Bonyeza <strong>SPIN</strong> kwenye gurudemu kwa {{ selectedP.name }}
-          </div>
-          <div v-else-if="!selectedP && participants.length > 0" class="spin-hint" style="opacity:0.5;">
-            Chagua mshiriki kutoka kwenye orodha
-          </div>
         </div>
 
       </div><!-- /grid -->
+
     </div>
   </section>
 
-  <!-- ══════════════════════════════════════════════
-       HOW IT WORKS  +  FOOTER
-  ══════════════════════════════════════════════ -->
-  <section id="jinsi" style="background:#09090D;padding:60px 24px;">
-    <div class="max-w-[900px] mx-auto text-center">
-      <h2 class="font-black text-white uppercase tracking-wide mb-10" style="font-size:20px;letter-spacing:2px;">JINSI INAVYOFANYA KAZI</h2>
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
-        <div class="how-step">
-          <div class="how-num">1</div>
-          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#F26522" stroke-width="1.5" stroke-linecap="round" class="mx-auto mb-3">
-            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
-          </svg>
-          <h3 class="text-white font-bold mb-2" style="font-size:15px;">Ongeza Mshiriki</h3>
-          <p style="color:rgba(255,255,255,0.45);font-size:13px;line-height:1.6;">Ingiza jina, namba ya simu na jinsia — bonyeza ONGEZA.</p>
-        </div>
-        <div class="how-step">
-          <div class="how-num">2</div>
-          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#F26522" stroke-width="1.5" stroke-linecap="round" class="mx-auto mb-3">
-            <circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 3"/>
-          </svg>
-          <h3 class="text-white font-bold mb-2" style="font-size:15px;">Spin</h3>
-          <p style="color:rgba(255,255,255,0.45);font-size:13px;line-height:1.6;">Mshiriki aliyechaguliwa ataonekana — bonyeza SPIN kwenye gurudemu.</p>
-        </div>
-        <div class="how-step">
-          <div class="how-num">3</div>
-          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#F26522" stroke-width="1.5" stroke-linecap="round" class="mx-auto mb-3">
-            <path d="M20 12v10H4V12"/><path d="M22 7H2v5h20V7z"/><path d="M12 22V7"/>
-            <path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/>
-          </svg>
-          <h3 class="text-white font-bold mb-2" style="font-size:15px;">Shinda</h3>
-          <p style="color:rgba(255,255,255,0.45);font-size:13px;line-height:1.6;">Matokeo yanaonekana mara moja — endelea na mshiriki mwingine.</p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <footer style="background:linear-gradient(to right,#F26522,#E03E00);padding:22px 24px;text-align:center;">
-    <p class="text-white font-black tracking-wide" style="font-size:15px;letter-spacing:0.5px;">
-      Kila spin ni nafasi yako ya kushinda! <span style="opacity:0.8;">#HalotelSabasaba</span>
+  <footer style="position: absolute; bottom: 0; width: 100%; padding:10px 24px;text-align:center; z-index: 50;">
+    <p class="text-white font-black tracking-wide" style="font-size:12px;letter-spacing:0.5px; opacity: 0.8;">
+      Kila spin ni nafasi yako ya kushinda! #HalotelSabasaba
     </p>
   </footer>
 </template>
@@ -509,13 +478,14 @@ const lastWonPrizeId = computed(() => {
   display: flex; align-items: flex-start; justify-content: space-between;
   padding: 0 2px;
 }
-.panel-title  { font-size: 11px; font-weight: 900; letter-spacing: 2.5px; color: #F26522; text-transform: uppercase; }
-.panel-sub    { font-size: 10px; color: rgba(255,255,255,0.3); font-weight: 500; margin-top: 1px; }
+.panel-title  { font-size: 11px; font-weight: 900; letter-spacing: 2.5px; color: white; text-transform: uppercase; }
+.panel-sub    { font-size: 10px; color: rgba(255,255,255,0.7); font-weight: 500; margin-top: 1px; }
 .panel-header-icon { font-size: 22px; }
 
 .panel-card {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.07);
+  background: #E65C00;
+  border: 2px solid rgba(255,255,255,0.3);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.15);
   border-radius: 16px; padding: 12px;
 }
 
@@ -642,7 +612,7 @@ const lastWonPrizeId = computed(() => {
 }
 .p-result-inline--win      { color: #4ade80; }
 .p-result-inline--loss     { color: rgba(255,255,255,0.35); }
-.p-result-inline--spinning { color: #F26522; }
+.p-result-inline--spinning { color: white; }
 
 .p-status-wrap { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
 
@@ -650,8 +620,8 @@ const lastWonPrizeId = computed(() => {
   font-size: 10px; font-weight: 800; padding: 3px 7px; border-radius: 6px;
   letter-spacing: 0.3px; white-space: nowrap;
 }
-.p-badge--pending  { background: rgba(242,101,34,0.15); color: #F26522; border: 1px solid rgba(242,101,34,0.25); font: inherit; }
-.p-badge--spinning { background: rgba(242,101,34,0.12); color: #F26522; }
+.p-badge--pending  { background: rgba(255,255,255,0.15); color: white; border: 1px solid rgba(255,255,255,0.25); font: inherit; }
+.p-badge--spinning { background: rgba(255,255,255,0.12); color: white; }
 .p-badge--won      { background: rgba(34,197,94,0.15);  color: #22c55e;  border: 1px solid rgba(34,197,94,0.3); font-size: 14px; }
 .p-badge--lost     { background: rgba(100,116,139,0.12); color: #94a3b8; font-size: 14px; }
 
@@ -679,9 +649,9 @@ const lastWonPrizeId = computed(() => {
   color: rgba(255,255,255,0.55); font-size: 12px; font-weight: 700;
   text-decoration: none; transition: all 0.2s;
 }
-.view-all-btn:hover { background: rgba(242,101,34,0.1); border-color: rgba(242,101,34,0.25); color: #F26522; }
+.view-all-btn:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.25); color: white; }
 .view-all-count {
-  background: rgba(242,101,34,0.2); color: #F26522;
+  background: rgba(255,255,255,0.2); color: white;
   font-size: 10px; font-weight: 900; padding: 2px 7px; border-radius: 99px;
 }
 
@@ -691,21 +661,15 @@ const lastWonPrizeId = computed(() => {
   background: rgba(242,101,34,0.1); border: 1px solid rgba(242,101,34,0.2);
   font-size: 11px; color: rgba(255,255,255,0.6); text-align: center; line-height: 1.5;
 }
-.spin-hint strong { color: #F26522; }
+.spin-hint strong { color: white; }
 
 /* ── How it works ─────────────────────────────────────────────── */
-.how-step {
-  position: relative; padding: 32px 24px; border-radius: 20px;
-  background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07);
-  text-align: center; transition: all 0.3s;
-}
-.how-step:hover { background: rgba(242,101,34,0.06); border-color: rgba(242,101,34,0.2); transform: translateY(-4px); }
-.how-num {
-  position: absolute; top: -14px; left: 50%; transform: translateX(-50%);
-  width: 28px; height: 28px; border-radius: 50%; background: #F26522;
-  color: white; font-weight: 900; font-size: 13px;
+.how-num-small {
+  width: 24px; height: 24px; border-radius: 50%; background: white;
+  color: #E65C00; font-weight: 900; font-size: 12px;
   display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 4px 12px rgba(242,101,34,0.5);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  margin-bottom: 8px;
 }
 
 @keyframes spin-anim { to { transform: rotate(360deg); } }

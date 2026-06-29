@@ -64,7 +64,7 @@ function avatarBg(gender: string) {
 </script>
 
 <template>
-  <div style="min-height:100vh;background:#09090D;padding-top:72px;">
+  <div style="min-height:100vh;background:radial-gradient(ellipse at top, #F26522 0%, #a83300 100%);padding-top:72px;">
     <div class="max-w-[1100px] mx-auto px-5 py-8">
 
       <!-- Back + title -->
@@ -80,7 +80,7 @@ function avatarBg(gender: string) {
         >← Rudi</RouterLink>
         <div>
           <div style="font-size:20px;font-weight:900;color:white;letter-spacing:-0.3px;">Washiriki Wote</div>
-          <div style="font-size:12px;color:rgba(255,255,255,0.35);margin-top:1px;">Rekodi kamili ya wote waliocheza</div>
+          <div style="font-size:12px;color:rgba(255,255,255,0.7);margin-top:1px;">Rekodi kamili ya wote waliocheza</div>
         </div>
       </div>
 
@@ -99,7 +99,7 @@ function avatarBg(gender: string) {
           <div class="stat-label">Wanasubiri</div>
         </div>
         <div class="stat-card">
-          <div class="stat-value" style="color:#F26522;">{{ winRate }}%</div>
+          <div class="stat-value" style="color:white;">{{ winRate }}%</div>
           <div class="stat-label">Kiwango Ushindi</div>
         </div>
       </div>
@@ -123,9 +123,9 @@ function avatarBg(gender: string) {
             :style="{
               padding:'9px 14px',borderRadius:'10px',fontSize:'12px',fontWeight:'700',
               cursor:'pointer',border:'1.5px solid',transition:'all 0.2s',
-              background: filter === f.k ? '#F26522' : 'rgba(255,255,255,0.04)',
-              borderColor: filter === f.k ? '#F26522' : 'rgba(255,255,255,0.09)',
-              color: filter === f.k ? 'white' : 'rgba(255,255,255,0.5)',
+              background: filter === f.k ? 'white' : 'rgba(255,255,255,0.04)',
+              borderColor: filter === f.k ? 'white' : 'rgba(255,255,255,0.09)',
+              color: filter === f.k ? '#F26522' : 'rgba(255,255,255,0.8)',
             }"
           >{{ f.l }}</button>
         </div>
@@ -148,7 +148,7 @@ function avatarBg(gender: string) {
         <div style="
           display:grid;grid-template-columns:40px 1fr 1fr 1fr 120px 130px;gap:12px;
           padding:8px 16px;font-size:10px;font-weight:800;letter-spacing:1.5px;
-          color:rgba(255,255,255,0.3);text-transform:uppercase;
+          color:rgba(255,255,255,0.6);text-transform:uppercase;
         ">
           <div>#</div>
           <div>Jina</div>
@@ -171,7 +171,7 @@ function avatarBg(gender: string) {
           onmouseleave="this.style.background='rgba(255,255,255,0.03)'"
         >
           <!-- # -->
-          <div style="font-size:11px;font-weight:800;color:rgba(255,255,255,0.2);">{{ idx + 1 }}</div>
+          <div style="font-size:11px;font-weight:800;color:rgba(255,255,255,0.5);">{{ idx + 1 }}</div>
 
           <!-- Name + avatar -->
           <div style="display:flex;align-items:center;gap:10px;min-width:0;">
@@ -185,12 +185,12 @@ function avatarBg(gender: string) {
               <div style="font-size:13px;font-weight:700;color:rgba(255,255,255,0.9);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
                 {{ s.name || '—' }}
               </div>
-              <div style="font-size:10px;color:rgba(255,255,255,0.3);">{{ s.gender }}</div>
+              <div style="font-size:10px;color:rgba(255,255,255,0.6);">{{ s.gender }}</div>
             </div>
           </div>
 
           <!-- Phone -->
-          <div style="font-size:12px;color:rgba(255,255,255,0.5);font-family:monospace;">
+          <div style="font-size:12px;color:rgba(255,255,255,0.8);font-family:monospace;">
             {{ s.phone || '—' }}
           </div>
 
@@ -217,12 +217,12 @@ function avatarBg(gender: string) {
             <span v-else style="
               display:inline-flex;align-items:center;gap:5px;
               padding:4px 10px;border-radius:99px;font-size:11px;font-weight:800;
-              background:rgba(242,101,34,0.1);color:#F26522;border:1px solid rgba(242,101,34,0.2);
+              background:rgba(255,255,255,0.1);color:white;border:1px solid rgba(255,255,255,0.2);
             ">⏳ Subiri</span>
           </div>
 
           <!-- Time -->
-          <div style="font-size:11px;color:rgba(255,255,255,0.3);">{{ formatTime(s) }}</div>
+          <div style="font-size:11px;color:rgba(255,255,255,0.6);">{{ formatTime(s) }}</div>
         </div>
 
         <!-- Footer count -->
@@ -242,7 +242,7 @@ function avatarBg(gender: string) {
   border-radius: 14px; padding: 16px 18px; text-align: center;
 }
 .stat-value { font-size: 28px; font-weight: 900; color: white; line-height: 1; }
-.stat-label { font-size: 10px; font-weight: 700; color: rgba(255,255,255,0.3); margin-top: 4px; text-transform: uppercase; letter-spacing: 1px; }
+.stat-label { font-size: 10px; font-weight: 700; color: rgba(255,255,255,0.7); margin-top: 4px; text-transform: uppercase; letter-spacing: 1px; }
 
 input::placeholder { color: rgba(255,255,255,0.2); }
 input:focus { border-color: #F26522 !important; }

@@ -231,9 +231,9 @@ watch(() => props.rotation, (newRotation) => {
       class="absolute rounded-full flex flex-col items-center justify-center cursor-pointer disabled:cursor-not-allowed"
       :style="{
         width: cs + 'px', height: cs + 'px', zIndex: 6,
-        background: 'linear-gradient(145deg,#1A1A22,#0E0E14)',
-        border: '3px solid #F26522',
-        boxShadow: '0 0 40px rgba(242,101,34,0.5),0 0 0 1px rgba(255,255,255,0.05),inset 0 1px 0 rgba(255,255,255,0.1)',
+        background: 'linear-gradient(145deg, #FF6B00, #E65C00)',
+        border: '6px solid #FFD700',
+        boxShadow: '0 0 40px rgba(242,101,34,0.7), inset 0 2px 10px rgba(255,255,255,0.4)',
         transition: 'transform 0.15s',
       }"
       @mouseenter="(e: MouseEvent) => { if (phase !== 'spinning') (e.currentTarget as HTMLElement).style.transform='scale(1.07)' }"
@@ -241,7 +241,7 @@ watch(() => props.rotation, (newRotation) => {
       @mousedown="(e: MouseEvent) => { (e.currentTarget as HTMLElement).style.transform='scale(0.95)' }"
       @mouseup="(e: MouseEvent) => { (e.currentTarget as HTMLElement).style.transform='scale(1.07)' }"
     >
-      <img :src="halotelLogoW" alt="halotel" :style="{ height: cs * 0.15 + 'px', width: 'auto', marginBottom: '6px', opacity: '0.9' }" />
+      <img :src="halotelLogoW" alt="halotel" :style="{ height: cs * 0.28 + 'px', width: 'auto', marginBottom: '6px', opacity: '0.9' }" />
       <span :style="{ color:'white', fontWeight:'900', fontSize: cs * 0.145 + 'px', letterSpacing:'3px', lineHeight:'1' }">
         {{ phase === 'spinning' ? '···' : 'SPIN' }}
       </span>

@@ -4,7 +4,9 @@ html { scroll-behavior: smooth; }
 
 body {
   margin: 0;
-  background-color: #0A0A0F;
+  background-color: #F26522;
+  background-image: radial-gradient(ellipse at top, #ff7e14 0%, #e84d02 100%);
+  color: white;
 }
 
 #app {

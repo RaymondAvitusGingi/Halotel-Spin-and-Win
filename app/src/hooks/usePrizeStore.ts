@@ -56,9 +56,10 @@ const defaultPrizes: Prize[] = [
   { id: 'voucher_2000', name: 'Voucher 2,000',          swahiliName: 'VOUCHER 2,000',      color: '#F5B800', rarity: 5, quantity: 50,   prizeType: 'win',    claimable: true,  amount: '2,000', order: 2 },
   { id: 'cap',          name: 'Cap / Kofia',             swahiliName: 'CAP / KOFIA',        color: '#007BFF', rarity: 6, quantity: 33,   prizeType: 'win',    claimable: true,  order: 3 },
   { id: 'bracelets',    name: 'Bracelets',               swahiliName: 'BRACELETS',          color: '#555555', rarity: 2, quantity: 375,  prizeType: 'win',    claimable: true,  order: 4 },
-  { id: 'pen_keyholder',name: 'Pen + Key Holder',        swahiliName: 'PEN + KEY HOLDER',   color: '#17A2B8', rarity: 2, quantity: 125,  prizeType: 'win',    claimable: true,  order: 5 },
-  { id: 'voucher_500',  name: 'Voucher 500',             swahiliName: 'VOUCHER 500',        color: '#8B2F8B', rarity: 3, quantity: 100,  prizeType: 'win',    claimable: true,  amount: '500', order: 6 },
-  { id: 'ahsante',      name: 'Ahsante kwa Kushiriki',   swahiliName: 'AHSANTE KWA KUSHIRIKI', color: '#6C757D', rarity: 3, quantity: null, prizeType: 'thanks', claimable: false, order: 7 },
+  { id: 'pen',          name: 'Pen',                     swahiliName: 'PEN',                color: '#17A2B8', rarity: 2, quantity: 60,   prizeType: 'win',    claimable: true,  order: 5 },
+  { id: 'key_holder',   name: 'Key Holder',              swahiliName: 'KEY HOLDER',         color: '#28A745', rarity: 2, quantity: 65,   prizeType: 'win',    claimable: true,  order: 6 },
+  { id: 'voucher_500',  name: 'Voucher 500',             swahiliName: 'VOUCHER 500',        color: '#8B2F8B', rarity: 3, quantity: 100,  prizeType: 'win',    claimable: true,  amount: '500', order: 7 },
+  { id: 'ahsante',      name: 'Ahsante kwa Kushiriki',   swahiliName: 'AHSANTE KWA KUSHIRIKI', color: '#6C757D', rarity: 3, quantity: null, prizeType: 'thanks', claimable: false, order: 8 },
 ]
 
 const COLORS = ['#F26522','#DC3545','#F5B800','#007BFF','#555555','#17A2B8','#8B2F8B','#6C757D','#28A745','#FF6B9D','#FFD700','#E83E8C']
