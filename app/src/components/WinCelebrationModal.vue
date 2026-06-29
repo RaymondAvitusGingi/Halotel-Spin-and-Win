@@ -11,7 +11,7 @@ const props = defineProps<Props>();
 const emit = defineEmits(['close']);
 
 // Auto-dismiss after 12 s
-let timer: ReturnType<typeof setTimeout>;
+let timer: ReturnType<typeof setTimeout> | undefined;
 const progress = ref(100);
 const DURATION = 12000;
 let start = 0;

@@ -9,7 +9,7 @@ import { db } from '@/firebase';
 import PrizeWheel from '@/components/PrizeWheel.vue';
 import ConfettiField from '@/components/ConfettiField.vue';
 import WinCelebrationModal from '@/components/WinCelebrationModal.vue';
-import { usePrizeStore, computeProbability } from '@/hooks/usePrizeStore';
+import { usePrizeStore } from '@/hooks/usePrizeStore';
 import type { Prize } from '@/hooks/usePrizeStore';
 import type { SpinPhase } from '@/hooks/useWheelState';
 import braceletImg from '@/assets/prizes/bracelet.png';
@@ -46,6 +46,7 @@ interface Participant {
   prizeId: string | null;
   prizeName: string | null;
   isClaimable: boolean | null;
+  hasRetried: boolean;
 }
 
 const participants  = ref<Participant[]>([]);
@@ -68,7 +69,7 @@ onMounted(() => {
   const q = query(
     collection(db, 'spins'),
     where('timestamp', '>=', Timestamp.fromDate(todayStart)),
-    orderBy('timestamp', 'asc'),
+    orderBy('timestamp', 'desc'),
   );
 
   unsub = onSnapshot(q, (snap) => {
@@ -96,6 +97,7 @@ onMounted(() => {
         prizeId:     data.prizeId   ?? null,
         prizeName:   data.prizeName ?? null,
         isClaimable: data.isClaimable ?? null,
+        hasRetried:  existing?.hasRetried ?? false,
       };
     });
 
@@ -169,8 +171,9 @@ function onWheelSpin() {
   emit('spin');
 }
 
-// ── Win celebration modal ────────────────────────────────────
+// ── Win celebration modal & retry toast ─────────────────────
 const celebration = ref<{ winnerName: string; prize: Prize; prizeImg: string | null } | null>(null);
+const retryToast  = ref<string | null>(null); // winner name during retry
 
 function dismissCelebration() {
   celebration.value = null;
@@ -185,26 +188,38 @@ watch(() => props.winResult, async (prize) => {
   const p = selectedP.value;
   if (!p || p.status !== 'spinning') return;
 
-  p.status      = prize.claimable ? 'won' : 'no_win';
+  const pType = prize.prizeType ?? (prize.claimable ? 'win' : 'thanks');
+
+  if (pType === 'retry' && !p.hasRetried) {
+    // Give them one more spin — don't record a result yet
+    p.hasRetried = true;
+    p.status     = 'pending';
+    retryToast.value = p.name;
+    setTimeout(() => { retryToast.value = null; }, 3000);
+    emit('spinAgain');
+    return;
+  }
+
+  p.status      = pType === 'win' ? 'won' : 'no_win';
   p.prizeId     = prize.id;
   p.prizeName   = prize.name;
-  p.isClaimable = prize.claimable;
+  p.isClaimable = pType === 'win';
 
   try {
     await updateDoc(doc(db, 'spins', p.id), {
-      prizeId: prize.id, prizeName: prize.name, isClaimable: prize.claimable,
+      prizeId: prize.id, prizeName: prize.name, isClaimable: pType === 'win',
     });
   } catch { /* silent */ }
 
-  if (prize.claimable) {
-    // Show celebration modal for winners; auto-advance happens on dismiss
+  if (pType === 'win') {
+    // Show celebration modal; auto-advance happens on dismiss
     celebration.value = {
       winnerName: p.name,
       prize,
       prizeImg: prizeImgs[prize.id] ?? null,
     };
   } else {
-    // No win — auto-advance after 2.5 s
+    // thanks / exhausted retry — auto-advance after 2.5 s
     setTimeout(() => {
       const next = participants.value.find(q => q.status === 'pending');
       selectedId.value = next?.id ?? null;
@@ -221,6 +236,22 @@ const lastWonPrizeId = computed(() => {
 </script>
 
 <template>
+  <!-- Retry toast -->
+  <Teleport to="body">
+    <Transition name="toast">
+      <div v-if="retryToast" style="
+        position:fixed;top:80px;left:50%;transform:translateX(-50%);z-index:9998;
+        background:linear-gradient(135deg,#DC3545,#b02a37);
+        color:white;padding:14px 28px;border-radius:99px;
+        font-size:15px;font-weight:800;letter-spacing:0.3px;
+        box-shadow:0 8px 32px rgba(220,53,69,0.5);
+        display:flex;align-items:center;gap:10px;white-space:nowrap;
+      ">
+        🔄 <span>{{ retryToast }} — Jaribu Tena! Spin moja zaidi.</span>
+      </div>
+    </Transition>
+  </Teleport>
+
   <!-- Win celebration modal -->
   <WinCelebrationModal
     v-if="celebration"
@@ -249,15 +280,15 @@ const lastWonPrizeId = computed(() => {
           <div class="panel-header">
             <div>
               <div class="panel-title">ZAWADI</div>
-              <div class="panel-sub">{{ prizes.length }} prizes available</div>
+              <div class="panel-sub">{{ prizes.filter(p => p.prizeType === 'win').length }} prizes available</div>
             </div>
             <div class="panel-header-icon">🏆</div>
           </div>
 
-          <!-- Prize list -->
+          <!-- Prize list (win-type only — retry/thanks hidden from customers) -->
           <div class="panel-card flex-1" style="overflow-y:auto;padding:0;">
             <div
-              v-for="prize in prizes" :key="prize.id"
+              v-for="prize in prizes.filter(p => p.prizeType === 'win')" :key="prize.id"
               class="prize-row"
               :class="{ 'prize-row--lit': lastWonPrizeId === prize.id }"
             >
@@ -273,13 +304,7 @@ const lastWonPrizeId = computed(() => {
               <!-- Info -->
               <div class="flex-1 min-w-0">
                 <div class="prize-name">{{ prize.name }}</div>
-                <div class="prob-bar-wrap">
-                  <div class="prob-bar" :style="{ width: Math.min(100, computeProbability(prize, prizes) * 4) + '%' }" />
-                </div>
               </div>
-
-              <!-- Probability -->
-              <div class="prize-pct">{{ computeProbability(prize, prizes).toFixed(1) }}%</div>
             </div>
           </div>
         </div>
@@ -684,4 +709,7 @@ const lastWonPrizeId = computed(() => {
 }
 
 @keyframes spin-anim { to { transform: rotate(360deg); } }
+
+.toast-enter-active, .toast-leave-active { transition: all 0.3s cubic-bezier(0.34,1.56,0.64,1); }
+.toast-enter-from, .toast-leave-to { opacity:0; transform:translateX(-50%) translateY(-16px) scale(0.9); }
 </style>

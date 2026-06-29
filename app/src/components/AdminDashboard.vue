@@ -81,7 +81,8 @@ const thumbnailPreview = ref<string | null>(null)
 
 const form = ref({
   name: '', swahiliName: '', rarity: 3, quantity: null as number | null,
-  claimable: true, amount: '', subtitle: '', thumbnail: '',
+  prizeType: 'win' as 'win' | 'retry' | 'thanks',
+  amount: '', subtitle: '', thumbnail: '',
 })
 
 // Live probability preview based on current form values
@@ -93,7 +94,8 @@ const probPreview = computed(() => {
     color: '#000', order: 0,
     rarity: form.value.rarity,
     quantity: form.value.quantity,
-    claimable: form.value.claimable,
+    prizeType: form.value.prizeType,
+    claimable: form.value.prizeType === 'win',
   }
   const others = prizes.value.filter(p => p.id !== tempPrize.id)
   return computeProbability(tempPrize, [...others, tempPrize]).toFixed(1)
@@ -109,7 +111,7 @@ function handleThumbnailUpload(e: Event) {
 
 function openAdd() {
   editingPrize.value = null
-  form.value = { name: '', swahiliName: '', rarity: 3, quantity: null, claimable: true, amount: '', subtitle: '', thumbnail: '' }
+  form.value = { name: '', swahiliName: '', rarity: 3, quantity: null, prizeType: 'win', amount: '', subtitle: '', thumbnail: '' }
   thumbnailPreview.value = null
   showModal.value = true
 }
@@ -120,7 +122,7 @@ function openEdit(prize: Prize) {
     name: prize.name, swahiliName: prize.swahiliName,
     rarity: prize.rarity ?? 3,
     quantity: prize.quantity,
-    claimable: prize.claimable ?? true,
+    prizeType: prize.prizeType ?? (prize.claimable ? 'win' : 'thanks'),
     amount: prize.amount || '', subtitle: prize.subtitle || '', thumbnail: prize.thumbnail || '',
   }
   thumbnailPreview.value = prize.thumbnail || getDefaultImg(prize) || null
@@ -131,10 +133,12 @@ function save() {
   if (!form.value.name || !form.value.swahiliName) return
   const payload = {
     name: form.value.name, swahiliName: form.value.swahiliName,
-    rarity: form.value.rarity, quantity: form.value.quantity, claimable: form.value.claimable,
-    amount: form.value.amount || undefined,
-    subtitle: form.value.subtitle || undefined,
-    thumbnail: form.value.thumbnail || undefined,
+    rarity: form.value.rarity, quantity: form.value.quantity,
+    prizeType: form.value.prizeType,
+    claimable: form.value.prizeType === 'win',
+    amount:    form.value.amount    || null,
+    subtitle:  form.value.subtitle  || null,
+    thumbnail: form.value.thumbnail || null,
   }
   if (editingPrize.value) { updatePrize(editingPrize.value.id, payload) }
   else { addPrize(payload) }
@@ -631,15 +635,29 @@ async function executeDeleteAdmin() {
           </div>
         </div>
 
-        <!-- Claimable Toggle -->
-        <div class="mt-4 claimable-row">
-          <label class="toggle-switch">
-            <input type="checkbox" v-model="form.claimable" />
-            <span class="toggle-thumb"></span>
-          </label>
-          <div>
-            <div style="font-size:13px;font-weight:700;color:var(--slate-800)">Collect winner details</div>
-            <div style="font-size:11px;color:var(--slate-400)">Show name/phone/gender form when this prize is won</div>
+        <!-- Prize Type Selector -->
+        <div class="mt-4">
+          <label class="label">Prize Type</label>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">
+            <button
+              v-for="opt in [
+                { value: 'win',    icon: '🏆', label: 'Win',    desc: 'Real prize — shows celebration' },
+                { value: 'retry',  icon: '🔄', label: 'Retry',  desc: 'Spin again once' },
+                { value: 'thanks', icon: '🙏', label: 'Thanks', desc: 'Thanks for participating' },
+              ]" :key="opt.value"
+              type="button"
+              @click="form.prizeType = opt.value as any"
+              :style="{
+                padding: '12px 8px', borderRadius: '12px', border: '2px solid',
+                cursor: 'pointer', textAlign: 'center', transition: 'all 0.18s',
+                borderColor: form.prizeType === opt.value ? '#F26522' : '#e2e8f0',
+                background:  form.prizeType === opt.value ? '#fff5f0' : '#f8fafc',
+              }"
+            >
+              <div style="font-size:22px;margin-bottom:4px;">{{ opt.icon }}</div>
+              <div :style="{ fontSize:'12px', fontWeight:'800', color: form.prizeType === opt.value ? '#F26522' : '#374151' }">{{ opt.label }}</div>
+              <div style="font-size:10px;color:#94a3b8;margin-top:2px;line-height:1.3;">{{ opt.desc }}</div>
+            </button>
           </div>
         </div>
         <!-- Thumbnail Upload -->

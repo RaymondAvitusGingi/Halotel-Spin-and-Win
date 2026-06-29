@@ -27,22 +27,19 @@ onUnmounted(() => window.removeEventListener('scroll', handleScroll));
 
       <!-- Nav links -->
       <div class="hidden lg:flex items-center gap-1 flex-1 justify-center">
-        <a href="https://www.halotel.co.tz" target="_blank" rel="noopener" class="nav-link">Halotel</a>
         <RouterLink to="/" class="nav-link nav-link--active">Spin &amp; Win</RouterLink>
-        <RouterLink to="/washiriki" class="nav-link">Washiriki</RouterLink>
       </div>
 
       <!-- Right actions -->
       <div class="flex items-center gap-3 flex-shrink-0">
-        <!-- Sabasaba → halotel.co.tz -->
         <a
-          href="https://www.halotel.co.tz"
+          href="https://play.google.com/store/apps/details?id=com.halotel.superapp"
           target="_blank"
           rel="noopener"
           class="hashtag-btn hidden sm:flex items-center gap-2"
         >
-          <span class="hashtag-icon">7</span>
-          <span>#HalotelSabasaba</span>
+          <span class="hashtag-icon">↓</span>
+          <span>MyHalo</span>
         </a>
 
         <RouterLink

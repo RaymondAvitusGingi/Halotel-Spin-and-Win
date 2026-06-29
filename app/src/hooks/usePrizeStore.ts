@@ -5,6 +5,8 @@ import {
 } from 'firebase/firestore'
 import { db } from '../firebase'
 
+export type PrizeType = 'win' | 'retry' | 'thanks'
+
 export interface Prize {
   id: string
   name: string
@@ -12,10 +14,11 @@ export interface Prize {
   color: string
   rarity: number       // 1 (Common) – 10 (Legendary)
   quantity: number | null
-  claimable: boolean   // collect winner details on win
-  amount?: string
-  subtitle?: string
-  thumbnail?: string
+  prizeType: PrizeType // 'win' | 'retry' | 'thanks'
+  claimable: boolean   // derived: prizeType === 'win'
+  amount?: string | null
+  subtitle?: string | null
+  thumbnail?: string | null
   order: number
 }
 
@@ -48,14 +51,14 @@ export function rarityColor(r: number): string {
 }
 
 const defaultPrizes: Prize[] = [
-  { id: 'voucher_5000', name: 'Voucher 5,000', swahiliName: 'VOUCHER 5,000', color: '#F26522', rarity: 4, quantity: 100, claimable: true, amount: '5,000', order: 0 },
-  { id: 'jaribu',       name: 'Jaribu Tena',   swahiliName: 'JARIBU TENA',    color: '#DC3545', rarity: 4, quantity: null, claimable: false, subtitle: 'TENA', order: 1 },
-  { id: 'voucher_2000', name: 'Voucher 2,000', swahiliName: 'VOUCHER 2,000', color: '#F5B800', rarity: 5, quantity: 50,  claimable: true, amount: '2,000', order: 2 },
-  { id: 'cap',          name: 'Cap / Kofia',   swahiliName: 'CAP / KOFIA',   color: '#007BFF', rarity: 6, quantity: 33,  claimable: true, order: 3 },
-  { id: 'bracelets',    name: 'Bracelets',     swahiliName: 'BRACELETS',     color: '#555555', rarity: 2, quantity: 375, claimable: true, order: 4 },
-  { id: 'pen_keyholder',name: 'Pen + Key Holder',swahiliName:'PEN + KEY HOLDER',color:'#17A2B8',rarity: 2, quantity: 125, claimable: true, order: 5 },
-  { id: 'voucher_500',  name: 'Voucher 500',   swahiliName: 'VOUCHER 500',   color: '#8B2F8B', rarity: 3, quantity: 100, claimable: true, amount: '500', order: 6 },
-  { id: 'ahsante',      name: 'Ahsante kwa Kushiriki', swahiliName: 'AHSANTE KWA KUSHIRIKI', color: '#6C757D', rarity: 3, quantity: null, claimable: false, order: 7 },
+  { id: 'voucher_5000', name: 'Voucher 5,000',          swahiliName: 'VOUCHER 5,000',      color: '#F26522', rarity: 4, quantity: 100,  prizeType: 'win',    claimable: true,  amount: '5,000', order: 0 },
+  { id: 'jaribu',       name: 'Jaribu Tena',             swahiliName: 'JARIBU TENA',        color: '#DC3545', rarity: 4, quantity: null, prizeType: 'retry',  claimable: false, order: 1 },
+  { id: 'voucher_2000', name: 'Voucher 2,000',          swahiliName: 'VOUCHER 2,000',      color: '#F5B800', rarity: 5, quantity: 50,   prizeType: 'win',    claimable: true,  amount: '2,000', order: 2 },
+  { id: 'cap',          name: 'Cap / Kofia',             swahiliName: 'CAP / KOFIA',        color: '#007BFF', rarity: 6, quantity: 33,   prizeType: 'win',    claimable: true,  order: 3 },
+  { id: 'bracelets',    name: 'Bracelets',               swahiliName: 'BRACELETS',          color: '#555555', rarity: 2, quantity: 375,  prizeType: 'win',    claimable: true,  order: 4 },
+  { id: 'pen_keyholder',name: 'Pen + Key Holder',        swahiliName: 'PEN + KEY HOLDER',   color: '#17A2B8', rarity: 2, quantity: 125,  prizeType: 'win',    claimable: true,  order: 5 },
+  { id: 'voucher_500',  name: 'Voucher 500',             swahiliName: 'VOUCHER 500',        color: '#8B2F8B', rarity: 3, quantity: 100,  prizeType: 'win',    claimable: true,  amount: '500', order: 6 },
+  { id: 'ahsante',      name: 'Ahsante kwa Kushiriki',   swahiliName: 'AHSANTE KWA KUSHIRIKI', color: '#6C757D', rarity: 3, quantity: null, prizeType: 'thanks', claimable: false, order: 7 },
 ]
 
 const COLORS = ['#F26522','#DC3545','#F5B800','#007BFF','#555555','#17A2B8','#8B2F8B','#6C757D','#28A745','#FF6B9D','#FFD700','#E83E8C']
@@ -80,8 +83,8 @@ function initStore() {
       return
     }
     const loaded = snap.docs.map(d => d.data() as Prize)
-    // Auto-migrate prizes that are missing the rarity field (old schema)
-    const needsMigration = loaded.some(p => p.rarity === undefined || p.rarity === null)
+    // Auto-migrate prizes missing rarity or prizeType (old schema)
+    const needsMigration = loaded.some(p => p.rarity === undefined || p.rarity === null || p.prizeType === undefined)
     if (needsMigration) {
       const batch = writeBatch(db)
       snap.docs.forEach(d => batch.delete(d.ref))
