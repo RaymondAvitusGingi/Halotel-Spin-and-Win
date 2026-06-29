@@ -1,8 +1,12 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { usePrizeStore } from '@/hooks/usePrizeStore'
+import { ref, computed, watch, onUnmounted } from 'vue'
+import { usePrizeStore, computeProbability, rarityLabel, rarityColor } from '@/hooks/usePrizeStore'
 import type { Prize } from '@/hooks/usePrizeStore'
-import { Plus, Pencil, Trash2, X, Gift, Package, Percent, Layers, LayoutDashboard, Shield, LogOut, Upload } from 'lucide-vue-next'
+import { Plus, Pencil, Trash2, X, Gift, Package, LayoutDashboard, Shield, LogOut, Upload, Trophy, Download, Star } from 'lucide-vue-next'
+import { initializeApp, deleteApp } from 'firebase/app'
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword } from 'firebase/auth'
+import { collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy } from 'firebase/firestore'
+import { auth, db, firebaseConfig } from '@/firebase'
 import braceletImg from '@/assets/prizes/bracelet.png'
 import capImg from '@/assets/prizes/cap.png'
 import penKeyholderImg from '@/assets/prizes/pen-keyholder.png'
@@ -10,12 +14,12 @@ import voucher500Img from '@/assets/prizes/voucher-500.png'
 import voucher2000Img from '@/assets/prizes/voucher-2000.png'
 import voucher5000Img from '@/assets/prizes/voucher-5000.png'
 
-const { prizes, totalProbability, totalQuantity, addPrize, updatePrize, deletePrize } = usePrizeStore()
+const { prizes, totalQuantity, addPrize, updatePrize, deletePrize, resetDefaults } = usePrizeStore()
 
 const prizeImages: Record<string, string> = {
-  'bracelets': braceletImg, 'cap': capImg, 'pen_keyholder': penKeyholderImg,
-  'pen-keyholder': penKeyholderImg, 'voucher_500': voucher500Img,
-  'voucher_2000': voucher2000Img, 'voucher_5000': voucher5000Img,
+  bracelets: braceletImg, cap: capImg, pen_keyholder: penKeyholderImg,
+  'pen-keyholder': penKeyholderImg, voucher_500: voucher500Img,
+  voucher_2000: voucher2000Img, voucher_5000: voucher5000Img,
 }
 
 function getDefaultImg(prize: Prize): string | null {
@@ -26,76 +30,48 @@ function getDefaultImg(prize: Prize): string | null {
   return null
 }
 
-const activeTab = ref<'dashboard' | 'prizes' | 'admin'>('dashboard')
+const activeTab = ref<'dashboard' | 'prizes' | 'winners' | 'admin'>('dashboard')
 
-// ─── Login State ──────────────────────────────────────────────────────
-const isLoggedIn = ref(localStorage.getItem('admin_logged_in') === 'true')
+// ─── Auth ──────────────────────────────────────────────────────────────
+interface AdminUser { id: string; name: string; email: string; role: string; status: string }
+
+const isLoggedIn = ref(false)
 const loginEmail = ref('')
 const loginPass = ref('')
 const loginError = ref('')
 const loginLoading = ref(false)
+const currentAdmin = ref<AdminUser | null>(null)
 
-const ADMIN_CREDENTIALS_KEY = 'admin_users'
-
-interface AdminUser {
-  id: string
-  name: string
-  email: string
-  password: string
-  role: string
-  status: string
-}
-
-function getAdminUsers(): AdminUser[] {
-  try { return JSON.parse(localStorage.getItem(ADMIN_CREDENTIALS_KEY) || '[]') } catch { return [] }
-}
-
-function saveAdminUsers(users: AdminUser[]) {
-  localStorage.setItem(ADMIN_CREDENTIALS_KEY, JSON.stringify(users))
-}
-
-// Ensure default admin exists
-const defaultUsers: AdminUser[] = [
-  { id: '1', name: 'Super Admin', email: 'admin@halotel.com', password: 'admin123', role: 'admin', status: 'active' }
-]
-if (getAdminUsers().length === 0) saveAdminUsers(defaultUsers)
-
-function handleLogin() {
-  loginError.value = ''
-  if (!loginEmail.value || !loginPass.value) {
-    loginError.value = 'Please enter email and password'
-    return
-  }
-  loginLoading.value = true
-  const users = getAdminUsers()
-  const user = users.find(u => u.email === loginEmail.value && u.password === loginPass.value)
-  if (!user) {
-    loginError.value = 'Invalid email or password'
-    loginLoading.value = false
-    return
-  }
-  if (user.status !== 'active') {
-    loginError.value = 'Your account has been disabled'
-    loginLoading.value = false
-    return
-  }
-  localStorage.setItem('admin_logged_in', 'true')
-  localStorage.setItem('admin_user', JSON.stringify(user))
-  isLoggedIn.value = true
-  loginLoading.value = false
-}
-
-function handleLogout() {
-  localStorage.removeItem('admin_logged_in')
-  localStorage.removeItem('admin_user')
-  isLoggedIn.value = false
-  loginEmail.value = ''
-  loginPass.value = ''
-}
-
-const currentAdmin = computed(() => {
-  try { return JSON.parse(localStorage.getItem('admin_user') || '{}') } catch { return null }
+const unsubAuth = onAuthStateChanged(auth, async (user) => {
+  if (user) {
+    try {
+      const snap = await getDoc(doc(db, 'admins', user.uid))
+      if (snap.exists() && snap.data()?.status === 'active') {
+        currentAdmin.value = { id: user.uid, email: user.email!, ...snap.data() } as AdminUser
+        isLoggedIn.value = true
+      } else if (!snap.exists()) {
+        const all = await getDocs(collection(db, 'admins'))
+        if (all.empty) {
+          const name = user.displayName || user.email!.split('@')[0]
+          await setDoc(doc(db, 'admins', user.uid), { name, email: user.email!, role: 'admin', status: 'active' })
+          currentAdmin.value = { id: user.uid, email: user.email!, name, role: 'admin', status: 'active' }
+          isLoggedIn.value = true
+        } else { loginError.value = 'Access denied.'; await signOut(auth) }
+      } else { loginError.value = 'Account disabled.'; await signOut(auth) }
+    } catch { await signOut(auth) }
+  } else { isLoggedIn.value = false; currentAdmin.value = null }
 })
+onUnmounted(() => unsubAuth())
+
+async function handleLogin() {
+  loginError.value = ''
+  if (!loginEmail.value || !loginPass.value) { loginError.value = 'Please enter email and password'; return }
+  loginLoading.value = true
+  try { await signInWithEmailAndPassword(auth, loginEmail.value, loginPass.value) }
+  catch { loginError.value = 'Invalid email or password' }
+  finally { loginLoading.value = false }
+}
+async function handleLogout() { await signOut(auth); loginEmail.value = ''; loginPass.value = '' }
 
 // ─── Prize Management ─────────────────────────────────────────────────
 const showModal = ref(false)
@@ -104,142 +80,178 @@ const showDeleteConfirm = ref<string | null>(null)
 const thumbnailPreview = ref<string | null>(null)
 
 const form = ref({
-  name: '', swahiliName: '', probability: 10, quantity: null as number | null,
-  type: 'prize' as Prize['type'], amount: '', subtitle: '', thumbnail: '' as string,
+  name: '', swahiliName: '', rarity: 3, quantity: null as number | null,
+  claimable: true, amount: '', subtitle: '', thumbnail: '',
+})
+
+// Live probability preview based on current form values
+const probPreview = computed(() => {
+  const tempPrize: Prize = {
+    id: editingPrize.value?.id || '__temp__',
+    name: form.value.name || 'New',
+    swahiliName: form.value.swahiliName || '',
+    color: '#000', order: 0,
+    rarity: form.value.rarity,
+    quantity: form.value.quantity,
+    claimable: form.value.claimable,
+  }
+  const others = prizes.value.filter(p => p.id !== tempPrize.id)
+  return computeProbability(tempPrize, [...others, tempPrize]).toFixed(1)
 })
 
 function handleThumbnailUpload(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0]
   if (!file) return
   const reader = new FileReader()
-  reader.onload = () => {
-    thumbnailPreview.value = reader.result as string
-    form.value.thumbnail = reader.result as string
-  }
+  reader.onload = () => { thumbnailPreview.value = reader.result as string; form.value.thumbnail = reader.result as string }
   reader.readAsDataURL(file)
 }
 
 function openAdd() {
   editingPrize.value = null
-  form.value = { name: '', swahiliName: '', probability: 10, quantity: null, type: 'prize', amount: '', subtitle: '', thumbnail: '' }
+  form.value = { name: '', swahiliName: '', rarity: 3, quantity: null, claimable: true, amount: '', subtitle: '', thumbnail: '' }
   thumbnailPreview.value = null
   showModal.value = true
 }
 
 function openEdit(prize: Prize) {
   editingPrize.value = prize
-  const savedPrizes = JSON.parse(localStorage.getItem('halotel_prizes') || '[]')
-  const saved = savedPrizes.find((p: any) => p.id === prize.id)
   form.value = {
-    name: prize.name, swahiliName: prize.swahiliName, probability: prize.probability,
-    quantity: prize.quantity, type: prize.type, amount: prize.amount || '', subtitle: prize.subtitle || '',
-    thumbnail: saved?.thumbnail || '',
+    name: prize.name, swahiliName: prize.swahiliName,
+    rarity: prize.rarity ?? 3,
+    quantity: prize.quantity,
+    claimable: prize.claimable ?? true,
+    amount: prize.amount || '', subtitle: prize.subtitle || '', thumbnail: prize.thumbnail || '',
   }
-  thumbnailPreview.value = saved?.thumbnail || getDefaultImg(prize) || null
+  thumbnailPreview.value = prize.thumbnail || getDefaultImg(prize) || null
   showModal.value = true
 }
 
 function save() {
   if (!form.value.name || !form.value.swahiliName) return
-  if (editingPrize.value) {
-    updatePrize(editingPrize.value.id, {
-      name: form.value.name, swahiliName: form.value.swahiliName, probability: form.value.probability,
-      quantity: form.value.quantity, type: form.value.type, amount: form.value.amount || undefined,
-      subtitle: form.value.subtitle || undefined, thumbnail: form.value.thumbnail || undefined,
-    })
-  } else {
-    addPrize({
-      name: form.value.name, swahiliName: form.value.swahiliName, probability: form.value.probability,
-      quantity: form.value.quantity, type: form.value.type, amount: form.value.amount || undefined,
-      subtitle: form.value.subtitle || undefined, thumbnail: form.value.thumbnail || undefined,
-    })
+  const payload = {
+    name: form.value.name, swahiliName: form.value.swahiliName,
+    rarity: form.value.rarity, quantity: form.value.quantity, claimable: form.value.claimable,
+    amount: form.value.amount || undefined,
+    subtitle: form.value.subtitle || undefined,
+    thumbnail: form.value.thumbnail || undefined,
   }
+  if (editingPrize.value) { updatePrize(editingPrize.value.id, payload) }
+  else { addPrize(payload) }
   showModal.value = false
 }
 
 function confirmDelete(id: string) { showDeleteConfirm.value = id }
-function executeDelete() {
-  if (showDeleteConfirm.value) { deletePrize(showDeleteConfirm.value); showDeleteConfirm.value = null }
-}
+function executeDelete() { if (showDeleteConfirm.value) { deletePrize(showDeleteConfirm.value); showDeleteConfirm.value = null } }
 
 function getPrizeThumb(prize: Prize): string | null {
-  const saved = JSON.parse(localStorage.getItem('halotel_prizes') || '[]')
-  const savedPrize = saved.find((p: any) => p.id === prize.id)
-  if (savedPrize?.thumbnail) return savedPrize.thumbnail
-  return getDefaultImg(prize)
+  return prize.thumbnail || getDefaultImg(prize)
+}
+
+// ─── Participants (all spins) ─────────────────────────────────────────
+interface Winner {
+  id: string; name: string; phone: string; gender: string
+  prizeId: string | null; prizeName: string | null; isClaimable: boolean | null
+  timestamp: any
+}
+const winners = ref<Winner[]>([])
+const spinsFilter = ref<'all' | 'winners'>('all')
+const filteredSpins = computed(() =>
+  spinsFilter.value === 'winners'
+    ? winners.value.filter(w => w.isClaimable)
+    : winners.value
+)
+let unsubWinners: (() => void) | null = null
+
+function formatDate(ts: any): string {
+  if (!ts) return '—'
+  const d = ts.toDate ? ts.toDate() : new Date(ts)
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+function genderColor(g: string): string {
+  if (g === 'Mwanaume') return '#3b82f6'
+  if (g === 'Mwanamke') return '#ec4899'
+  return '#8b5cf6'
+}
+
+function exportWinnersCSV() {
+  const rows = [
+    ['Name', 'Phone', 'Gender', 'Prize', 'Won?', 'Date'],
+    ...filteredSpins.value.map(w => [
+      w.name, w.phone, w.gender,
+      w.prizeName || '—',
+      w.isClaimable ? 'YES' : 'NO',
+      formatDate(w.timestamp),
+    ]),
+  ]
+  const csv = rows.map(r => r.map(c => `"${c}"`).join(',')).join('\n')
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+  a.download = `spins-${new Date().toISOString().split('T')[0]}.csv`
+  a.click()
 }
 
 // ─── Dashboard Stats ──────────────────────────────────────────────────
 const stats = computed(() => [
   { label: 'Total Prizes', value: prizes.value.length, icon: Gift, color: '#FF4500', bg: '#FFF0EB' },
-  { label: 'Total Quantity', value: totalQuantity.value, icon: Package, color: '#16a34a', bg: '#f0fdf4' },
-  { label: 'Avg Hardness', value: (prizes.value.length ? (totalProbability.value / prizes.value.length).toFixed(1) : '0') + '%', icon: Percent, color: '#3b82f6', bg: '#eff6ff' },
-  { label: 'Prize Types', value: new Set(prizes.value.map(p => p.type)).size, icon: Layers, color: '#8b5cf6', bg: '#f5f3ff' },
+  { label: 'Total Stock',  value: totalQuantity.value,  icon: Package, color: '#16a34a', bg: '#f0fdf4' },
+  { label: 'Total Spins', value: winners.value.length, icon: Trophy, color: '#eab308', bg: '#fefce8' },
+  { label: 'Avg Rarity',  value: prizes.value.length ? (prizes.value.reduce((s,p) => s + p.rarity, 0) / prizes.value.length).toFixed(1) + '/10' : '—', icon: Star, color: '#8b5cf6', bg: '#f5f3ff' },
 ])
 
-const typeLabels: Record<string, string> = { prize: 'Prize', thanks: 'Thanks', retry: 'Retry' }
-
 // ─── Admin Management ─────────────────────────────────────────────────
-const adminUsers = ref<AdminUser[]>(getAdminUsers())
+const adminUsers = ref<AdminUser[]>([])
 const showAdminModal = ref(false)
 const editingAdminId = ref<string | null>(null)
 const adminForm = ref({ name: '', email: '', password: '', role: 'admin' })
 const deletingAdminId = ref<string | null>(null)
+let unsubAdmins: (() => void) | null = null
 
-function refreshAdmins() { adminUsers.value = getAdminUsers() }
+watch(isLoggedIn, (loggedIn) => {
+  if (loggedIn) {
+    unsubAdmins = onSnapshot(collection(db, 'admins'), (snap) => {
+      adminUsers.value = snap.docs.map(d => ({ id: d.id, ...d.data() } as AdminUser))
+    })
+    unsubWinners = onSnapshot(
+      query(collection(db, 'spins'), orderBy('timestamp', 'desc')),
+      (snap) => { winners.value = snap.docs.map(d => ({ id: d.id, ...d.data() } as Winner)) }
+    )
+  } else {
+    unsubAdmins?.(); unsubAdmins = null; adminUsers.value = []
+    unsubWinners?.(); unsubWinners = null; winners.value = []
+  }
+})
+onUnmounted(() => { unsubAdmins?.(); unsubWinners?.() })
 
-function openAddAdmin() {
-  editingAdminId.value = null
-  adminForm.value = { name: '', email: '', password: '', role: 'admin' }
-  showAdminModal.value = true
-}
+function openAddAdmin() { editingAdminId.value = null; adminForm.value = { name: '', email: '', password: '', role: 'admin' }; showAdminModal.value = true }
+function openEditAdmin(user: AdminUser) { editingAdminId.value = user.id; adminForm.value = { name: user.name, email: user.email, password: '', role: user.role }; showAdminModal.value = true }
 
-function openEditAdmin(user: AdminUser) {
-  editingAdminId.value = user.id
-  adminForm.value = { name: user.name, email: user.email, password: '', role: user.role }
-  showAdminModal.value = true
-}
-
-function saveAdmin() {
+async function saveAdmin() {
   if (!adminForm.value.name || !adminForm.value.email) return
-  const users = getAdminUsers()
   if (editingAdminId.value) {
-    const idx = users.findIndex(u => u.id === editingAdminId.value)
-    if (idx !== -1) {
-      users[idx] = { ...users[idx], name: adminForm.value.name, role: adminForm.value.role }
-      if (adminForm.value.password) users[idx].password = adminForm.value.password
-    }
+    await updateDoc(doc(db, 'admins', editingAdminId.value), { name: adminForm.value.name, role: adminForm.value.role })
   } else {
     if (!adminForm.value.password || adminForm.value.password.length < 6) return
-    users.push({
-      id: Date.now().toString(),
-      name: adminForm.value.name, email: adminForm.value.email,
-      password: adminForm.value.password, role: adminForm.value.role, status: 'active',
-    })
+    const secondaryApp = initializeApp(firebaseConfig, `secondary-${Date.now()}`)
+    const secondaryAuth = getAuth(secondaryApp)
+    try {
+      const cred = await createUserWithEmailAndPassword(secondaryAuth, adminForm.value.email, adminForm.value.password)
+      await setDoc(doc(db, 'admins', cred.user.uid), { name: adminForm.value.name, email: adminForm.value.email, role: adminForm.value.role, status: 'active' })
+    } finally { await deleteApp(secondaryApp) }
   }
-  saveAdminUsers(users)
-  refreshAdmins()
   showAdminModal.value = false
 }
 
-function toggleAdminStatus(user: AdminUser) {
+async function toggleAdminStatus(user: AdminUser) {
   if (user.id === currentAdmin.value?.id) return
-  const users = getAdminUsers()
-  const idx = users.findIndex(u => u.id === user.id)
-  if (idx !== -1) {
-    users[idx].status = users[idx].status === 'active' ? 'disabled' : 'active'
-    saveAdminUsers(users)
-    refreshAdmins()
-  }
+  await updateDoc(doc(db, 'admins', user.id), { status: user.status === 'active' ? 'disabled' : 'active' })
 }
 
 function confirmDeleteAdmin(id: string) { deletingAdminId.value = id }
-function executeDeleteAdmin() {
+async function executeDeleteAdmin() {
   if (!deletingAdminId.value) return
-  let users = getAdminUsers()
-  users = users.filter(u => u.id !== deletingAdminId.value)
-  saveAdminUsers(users)
-  refreshAdmins()
+  await deleteDoc(doc(db, 'admins', deletingAdminId.value))
   deletingAdminId.value = null
 }
 </script>
@@ -285,7 +297,7 @@ function executeDeleteAdmin() {
             <span v-if="loginLoading" class="spinner"></span>
             {{ loginLoading ? 'Signing in...' : 'Login' }}
           </button>
-          <p class="login-card__hint">Default: admin@halotel.com / admin123</p>
+          <p class="login-card__hint">Use your Firebase Auth credentials to sign in</p>
         </div>
       </div>
     </div>
@@ -299,16 +311,18 @@ function executeDeleteAdmin() {
 
         <nav class="sidebar__nav">
           <a class="sidebar__item" :class="{ 'sidebar__item--active': activeTab === 'dashboard' }" @click="activeTab = 'dashboard'">
-            <LayoutDashboard class="w-4 h-4" />
-            Dashboard
+            <LayoutDashboard class="w-4 h-4" />Dashboard
           </a>
           <a class="sidebar__item" :class="{ 'sidebar__item--active': activeTab === 'prizes' }" @click="activeTab = 'prizes'">
-            <Gift class="w-4 h-4" />
-            Prize Management
+            <Gift class="w-4 h-4" />Prize Management
+          </a>
+          <a class="sidebar__item" :class="{ 'sidebar__item--active': activeTab === 'winners' }" @click="activeTab = 'winners'">
+            <Trophy class="w-4 h-4" />
+            Participants
+            <span v-if="winners.length" class="sidebar__badge">{{ winners.length }}</span>
           </a>
           <a class="sidebar__item" :class="{ 'sidebar__item--active': activeTab === 'admin' }" @click="activeTab = 'admin'">
-            <Shield class="w-4 h-4" />
-            Admin Management
+            <Shield class="w-4 h-4" />Admin Management
           </a>
         </nav>
 
@@ -326,23 +340,21 @@ function executeDeleteAdmin() {
         <header class="admin-topbar">
           <div>
             <h1 class="admin-topbar__title">
-              {{ activeTab === 'dashboard' ? 'Dashboard' : activeTab === 'prizes' ? 'Prize Management' : 'Admin Management' }}
+              {{ activeTab === 'dashboard' ? 'Dashboard' : activeTab === 'prizes' ? 'Prize Management' : activeTab === 'winners' ? 'Participants' : 'Admin Management' }}
             </h1>
             <p class="admin-topbar__subtitle">
-              {{ activeTab === 'dashboard' ? 'Overview of your spin & win prizes' : activeTab === 'prizes' ? 'Configure prizes, quantities, and thumbnails' : 'Manage admin panel users' }}
+              {{ activeTab === 'dashboard' ? 'Real-time overview of your Spin & Win event' : activeTab === 'prizes' ? 'Configure prizes, rarity, and stock' : activeTab === 'winners' ? 'Everyone who played — winners and non-winners' : 'Manage admin panel users' }}
             </p>
           </div>
-          <div v-if="activeTab === 'prizes'">
-            <button @click="openAdd" class="btn btn-primary">
-              <Plus class="w-4 h-4" />
-              Add Prize
-            </button>
+          <div v-if="activeTab === 'prizes'" style="display:flex;gap:10px">
+            <button @click="resetDefaults" class="btn btn-outline btn-sm" style="color:#dc2626;border-color:#fecaca">Reset Defaults</button>
+            <button @click="openAdd" class="btn btn-primary"><Plus class="w-4 h-4" />Add Prize</button>
+          </div>
+          <div v-if="activeTab === 'winners'" style="display:flex;gap:10px">
+            <button @click="exportWinnersCSV" class="btn btn-outline btn-sm"><Download class="w-4 h-4" />Export CSV</button>
           </div>
           <div v-if="activeTab === 'admin'">
-            <button @click="openAddAdmin" class="btn btn-primary">
-              <Plus class="w-4 h-4" />
-              New User
-            </button>
+            <button @click="openAddAdmin" class="btn btn-primary"><Plus class="w-4 h-4" />New User</button>
           </div>
         </header>
 
@@ -368,9 +380,9 @@ function executeDeleteAdmin() {
                 <thead>
                   <tr>
                     <th>Prize</th>
-                    <th>Type</th>
-                    <th>Hardness</th>
-                    <th>Count</th>
+                    <th>Rarity</th>
+                    <th>Win Chance</th>
+                    <th>Stock</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -381,16 +393,23 @@ function executeDeleteAdmin() {
                           <img v-if="getPrizeThumb(prize)" :src="getPrizeThumb(prize)!" :alt="prize.name" class="w-full h-full object-contain" />
                           <Gift v-else class="w-4 h-4" :style="{ color: prize.color }" />
                         </div>
-                        <span class="font-semibold" style="color: var(--slate-800); font-size: 14px;">{{ prize.name }}</span>
+                        <div>
+                          <div class="font-semibold" style="color: var(--slate-800); font-size: 14px;">{{ prize.name }}</div>
+                          <div style="font-size:11px;color:var(--slate-400)">{{ prize.claimable ? 'Claimable' : 'No claim' }}</div>
+                        </div>
                       </div>
                     </td>
-                    <td><span class="badge" :class="prize.type === 'prize' ? 'badge--green' : prize.type === 'thanks' ? 'badge--amber' : 'badge--orange'">{{ typeLabels[prize.type] }}</span></td>
+                    <td>
+                      <span class="rarity-tag" :style="{ background: rarityColor(prize.rarity ?? 3) + '18', color: rarityColor(prize.rarity ?? 3), borderColor: rarityColor(prize.rarity ?? 3) + '40' }">
+                        {{ rarityLabel(prize.rarity ?? 3) }} · {{ prize.rarity ?? 3 }}/10
+                      </span>
+                    </td>
                     <td>
                       <div class="flex items-center gap-2">
-                        <div class="progress-bar" style="width: 80px;">
-                          <div class="progress-bar__fill" :style="{ width: Math.min(prize.probability, 100) + '%' }"></div>
+                        <div class="progress-bar" style="width: 64px;">
+                          <div class="progress-bar__fill" :style="{ width: Math.min(computeProbability(prize, prizes), 100) + '%' }"></div>
                         </div>
-                        <span :style="{ fontWeight: 700, fontSize: 13, color: prize.probability > 30 ? '#dc2626' : '#16a34a' }">{{ prize.probability }}%</span>
+                        <span style="font-weight:700;font-size:13px;color:var(--slate-700)">{{ computeProbability(prize, prizes).toFixed(1) }}%</span>
                       </div>
                     </td>
                     <td><span style="font-weight: 600; font-size: 14px; color: var(--slate-700);">{{ prize.quantity ?? '∞' }}</span></td>
@@ -414,9 +433,9 @@ function executeDeleteAdmin() {
                     <th>Thumbnail</th>
                     <th>Prize</th>
                     <th>Swahili</th>
-                    <th>Type</th>
-                    <th>Hardness</th>
-                    <th>Count</th>
+                    <th>Rarity</th>
+                    <th>Win Chance</th>
+                    <th>Stock</th>
                     <th style="text-align: right;">Actions</th>
                   </tr>
                 </thead>
@@ -430,16 +449,20 @@ function executeDeleteAdmin() {
                     </td>
                     <td>
                       <div class="font-semibold" style="color: var(--slate-800); font-size: 14px;">{{ prize.name }}</div>
-                      <div v-if="prize.amount" class="text-xs" style="color: var(--orange); font-weight: 700;">{{ prize.amount }}</div>
+                      <div v-if="prize.amount" class="text-xs" style="color: var(--orange); font-weight: 700;">TZS {{ prize.amount }}</div>
                     </td>
                     <td><span style="font-size: 13px; color: var(--slate-500);">{{ prize.swahiliName }}</span></td>
-                    <td><span class="badge" :class="prize.type === 'prize' ? 'badge--green' : prize.type === 'thanks' ? 'badge--amber' : 'badge--orange'">{{ typeLabels[prize.type] }}</span></td>
+                    <td>
+                      <span class="rarity-tag" :style="{ background: rarityColor(prize.rarity ?? 3) + '18', color: rarityColor(prize.rarity ?? 3), borderColor: rarityColor(prize.rarity ?? 3) + '40' }">
+                        {{ rarityLabel(prize.rarity ?? 3) }} {{ prize.rarity ?? 3 }}/10
+                      </span>
+                    </td>
                     <td>
                       <div class="flex items-center gap-2">
-                        <div class="progress-bar" style="width: 60px;">
-                           <div class="progress-bar__fill" :style="{ width: Math.min(prize.probability, 100) + '%' }"></div>
+                        <div class="progress-bar" style="width: 52px;">
+                          <div class="progress-bar__fill" :style="{ width: Math.min(computeProbability(prize, prizes), 100) + '%' }"></div>
                         </div>
-                        <span :style="{ fontWeight: 700, fontSize: 12, color: prize.probability > 30 ? '#dc2626' : '#16a34a' }">{{ prize.probability }}%</span>
+                        <span style="font-weight:700;font-size:12px;color:var(--slate-700)">{{ computeProbability(prize, prizes).toFixed(1) }}%</span>
                       </div>
                     </td>
                     <td><span style="font-weight: 600; font-size: 14px; color: var(--slate-700);">{{ prize.quantity ?? '∞' }}</span></td>
@@ -452,6 +475,71 @@ function executeDeleteAdmin() {
                   </tr>
                   <tr v-if="prizes.length === 0">
                     <td colspan="7" style="text-align: center; padding: 40px; color: var(--slate-400);">No prizes yet. Click "Add Prize" to create one.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ═══ PARTICIPANTS / SPINS ═══ -->
+        <div v-if="activeTab === 'winners'">
+          <!-- Filter bar -->
+          <div style="display:flex;gap:8px;margin-bottom:16px;">
+            <button
+              v-for="opt in [{ v:'all', l:'All Participants' }, { v:'winners', l:'Winners Only' }]" :key="opt.v"
+              @click="spinsFilter = opt.v as 'all' | 'winners'"
+              class="btn btn-sm"
+              :class="spinsFilter === opt.v ? 'btn-primary' : 'btn-outline'"
+            >{{ opt.l }}</button>
+            <span style="margin-left:auto;font-size:12px;color:var(--slate-400);align-self:center;">
+              {{ filteredSpins.length }} record{{ filteredSpins.length !== 1 ? 's' : '' }}
+            </span>
+          </div>
+
+          <div class="card">
+            <div style="overflow-x: auto;">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Participant</th>
+                    <th>Phone</th>
+                    <th>Result</th>
+                    <th>Date & Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="w in filteredSpins" :key="w.id">
+                    <td>
+                      <div class="flex items-center gap-3">
+                        <div class="winner-avatar" :style="{ background: genderColor(w.gender) }">{{ w.name.charAt(0).toUpperCase() }}</div>
+                        <div>
+                          <div style="font-weight:700;font-size:14px;color:var(--slate-800)">{{ w.name }}</div>
+                          <div style="font-size:11px;color:var(--slate-400)">{{ w.gender }}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td><span style="font-size:13px;color:var(--slate-600);font-weight:600">{{ w.phone }}</span></td>
+                    <td>
+                      <div v-if="w.prizeName" class="flex items-center gap-2">
+                        <span
+                          class="badge"
+                          :style="w.isClaimable
+                            ? 'background:rgba(34,197,94,0.12);color:#16a34a;border:1px solid rgba(34,197,94,0.25)'
+                            : 'background:rgba(100,116,139,0.12);color:#64748b;border:1px solid rgba(100,116,139,0.2)'"
+                        >{{ w.isClaimable ? '🏆 WIN' : '🔄 NO WIN' }}</span>
+                        <span style="font-size:13px;font-weight:600;color:var(--slate-700)">{{ w.prizeName }}</span>
+                      </div>
+                      <span v-else style="font-size:12px;color:var(--slate-400)">Spinning…</span>
+                    </td>
+                    <td><span style="font-size:12px;color:var(--slate-500)">{{ formatDate(w.timestamp) }}</span></td>
+                  </tr>
+                  <tr v-if="filteredSpins.length === 0">
+                    <td colspan="4" style="text-align:center;padding:60px;color:var(--slate-400)">
+                      <div style="font-size:40px;margin-bottom:12px">📋</div>
+                      <div style="font-weight:700;font-size:15px;margin-bottom:4px">No records yet</div>
+                      <div style="font-size:13px">Participants will appear here once they spin</div>
+                    </td>
                   </tr>
                 </tbody>
               </table>
@@ -513,24 +601,45 @@ function executeDeleteAdmin() {
             <input v-model="form.swahiliName" class="input" placeholder="VOUCHER 5,000" />
           </div>
           <div>
-            <label class="label">Winning Hardness (%)</label>
-            <input v-model.number="form.probability" type="number" step="0.1" class="input input--mono" />
-          </div>
-          <div>
-            <label class="label">Quantity (empty = ∞)</label>
+            <label class="label">Stock / Quantity (empty = ∞)</label>
             <input v-model.number="form.quantity" type="number" class="input input--mono" placeholder="∞" />
           </div>
           <div>
-            <label class="label">Type</label>
-            <select v-model="form.type" class="input select">
-              <option value="prize">Prize</option>
-              <option value="thanks">Thanks</option>
-              <option value="retry">Retry</option>
-            </select>
-          </div>
-          <div>
-            <label class="label">Amount (optional)</label>
+            <label class="label">Amount (optional, e.g. 5,000)</label>
             <input v-model="form.amount" class="input" placeholder="5,000" />
+          </div>
+        </div>
+
+        <!-- Rarity Slider -->
+        <div class="mt-4">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <label class="label" style="margin:0">Rarity</label>
+            <div style="display:flex;align-items:center;gap:10px">
+              <span class="rarity-tag" :style="{ background: rarityColor(form.rarity) + '18', color: rarityColor(form.rarity), borderColor: rarityColor(form.rarity) + '44' }">
+                {{ rarityLabel(form.rarity) }} · {{ form.rarity }}/10
+              </span>
+              <span class="prob-preview-chip">~{{ probPreview }}% chance</span>
+            </div>
+          </div>
+          <input
+            type="range" v-model.number="form.rarity" min="1" max="10" step="1"
+            class="rarity-slider"
+            :style="{ '--rc': rarityColor(form.rarity) }"
+          />
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:#94a3b8;font-weight:600;margin-top:4px">
+            <span>1 · Common</span><span>5 · Rare</span><span>10 · Legendary</span>
+          </div>
+        </div>
+
+        <!-- Claimable Toggle -->
+        <div class="mt-4 claimable-row">
+          <label class="toggle-switch">
+            <input type="checkbox" v-model="form.claimable" />
+            <span class="toggle-thumb"></span>
+          </label>
+          <div>
+            <div style="font-size:13px;font-weight:700;color:var(--slate-800)">Collect winner details</div>
+            <div style="font-size:11px;color:var(--slate-400)">Show name/phone/gender form when this prize is won</div>
           </div>
         </div>
         <!-- Thumbnail Upload -->
@@ -732,4 +841,53 @@ function executeDeleteAdmin() {
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes fadeInOverlay { from { opacity: 0; } to { opacity: 1; } }
 @keyframes scaleIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+/* ── Rarity ──────────────────────────────────────────────────────────── */
+.rarity-tag {
+  display: inline-flex; padding: 3px 10px; border-radius: 99px;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.3px;
+  border: 1px solid; white-space: nowrap;
+}
+.rarity-slider {
+  -webkit-appearance: none; width: 100%; height: 6px; border-radius: 3px; outline: none; cursor: pointer;
+  background: linear-gradient(to right, #22c55e 0%, #22c55e 10%, #86efac 20%, #eab308 40%, #f97316 60%, #ef4444 80%, #a855f7 100%);
+}
+.rarity-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%;
+  background: white; border: 3px solid var(--rc, #F26522); cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2); transition: border-color 0.2s;
+}
+.rarity-slider::-moz-range-thumb {
+  width: 20px; height: 20px; border-radius: 50%;
+  background: white; border: 3px solid var(--rc, #F26522); cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+.prob-preview-chip {
+  font-size: 12px; font-weight: 700; color: #FF4500;
+  background: #FFF0EB; padding: 3px 10px; border-radius: 99px;
+  border: 1px solid #ffe0d0;
+}
+
+/* ── Claimable toggle ────────────────────────────────────────────────── */
+.claimable-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 12px; background: #f8fafc; border: 1.5px solid #e2e8f0; }
+.toggle-switch { position: relative; width: 44px; height: 24px; cursor: pointer; flex-shrink: 0; }
+.toggle-switch input { display: none; }
+.toggle-thumb { position: absolute; inset: 0; background: #e2e8f0; border-radius: 12px; transition: all 0.2s; }
+.toggle-thumb::after { content: ''; position: absolute; width: 18px; height: 18px; background: white; border-radius: 50%; top: 3px; left: 3px; transition: all 0.2s; box-shadow: 0 1px 4px rgba(0,0,0,0.2); }
+.toggle-switch input:checked + .toggle-thumb { background: #F26522; }
+.toggle-switch input:checked + .toggle-thumb::after { transform: translateX(20px); }
+
+/* ── Winners ─────────────────────────────────────────────────────────── */
+.winner-avatar {
+  width: 36px; height: 36px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  color: white; font-weight: 800; font-size: 15px; flex-shrink: 0;
+}
+
+/* ── Sidebar badge ───────────────────────────────────────────────────── */
+.sidebar__badge {
+  margin-left: auto; background: #FF4500; color: white;
+  font-size: 10px; font-weight: 800; padding: 2px 6px;
+  border-radius: 99px; line-height: 1.4;
+}
 </style>

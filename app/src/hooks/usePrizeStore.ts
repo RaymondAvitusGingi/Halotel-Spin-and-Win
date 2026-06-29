@@ -1,88 +1,128 @@
-import { reactive, computed } from 'vue'
+import { ref, computed } from 'vue'
+import {
+  collection, doc, setDoc, deleteDoc,
+  onSnapshot, query, orderBy, writeBatch, getDocs
+} from 'firebase/firestore'
+import { db } from '../firebase'
 
 export interface Prize {
   id: string
   name: string
   swahiliName: string
   color: string
-  probability: number
+  rarity: number       // 1 (Common) – 10 (Legendary)
   quantity: number | null
-  type: 'prize' | 'thanks' | 'retry'
+  claimable: boolean   // collect winner details on win
   amount?: string
   subtitle?: string
   thumbnail?: string
+  order: number
+}
+
+// weight = stock / rarity^1.5  →  more stock + lower rarity = more winnable
+export function computeWeight(prize: Prize): number {
+  const qty = prize.quantity ?? 50
+  return qty / Math.pow(prize.rarity, 1.5)
+}
+
+export function computeProbability(prize: Prize, prizes: Prize[]): number {
+  const total = prizes.reduce((s, p) => s + computeWeight(p), 0)
+  if (total === 0) return 0
+  return (computeWeight(prize) / total) * 100
+}
+
+export function rarityLabel(r: number): string {
+  if (r <= 2) return 'Common'
+  if (r <= 4) return 'Uncommon'
+  if (r <= 6) return 'Rare'
+  if (r <= 8) return 'Epic'
+  return 'Legendary'
+}
+
+export function rarityColor(r: number): string {
+  if (r <= 2) return '#22c55e'
+  if (r <= 4) return '#eab308'
+  if (r <= 6) return '#f97316'
+  if (r <= 8) return '#ef4444'
+  return '#a855f7'
 }
 
 const defaultPrizes: Prize[] = [
-  { id: 'voucher_5000', name: 'Voucher 5,000', swahiliName: 'VOUCHER 5,000', color: '#F26522', probability: 15.4, quantity: 100, type: 'prize', amount: '5,000' },
-  { id: 'jaribu', name: 'Jaribu Tena', swahiliName: 'JARIBU 1,000', color: '#DC3545', probability: 7.7, quantity: null, type: 'retry', amount: '1,000', subtitle: 'TENA' },
-  { id: 'voucher_2000', name: 'Voucher 2,000', swahiliName: 'VOUCHER 2,000', color: '#F5B800', probability: 7.7, quantity: 50, type: 'prize', amount: '2,000' },
-  { id: 'cap', name: 'Cap / Kofia', swahiliName: 'CAP / KOFIA', color: '#007BFF', probability: 5.1, quantity: 33, type: 'prize' },
-  { id: 'bracelets', name: 'Bracelets', swahiliName: 'BRACELETS', color: '#555555', probability: 57.7, quantity: 375, type: 'prize' },
-  { id: 'pen_keyholder', name: 'Pen + Key Holder', swahiliName: 'PEN + KEY HOLDER', color: '#17A2B8', probability: 19.2, quantity: 125, type: 'prize' },
-  { id: 'voucher_500', name: 'Voucher 500', swahiliName: 'VOUCHER 500', color: '#8B2F8B', probability: 15.4, quantity: 100, type: 'prize', amount: '500' },
-  { id: 'ahsante', name: 'Ahsante kwa Kushiriki', swahiliName: 'AHSANTE KWA KUSHIKI', color: '#6C757D', probability: 12.8, quantity: null, type: 'thanks' },
+  { id: 'voucher_5000', name: 'Voucher 5,000', swahiliName: 'VOUCHER 5,000', color: '#F26522', rarity: 4, quantity: 100, claimable: true, amount: '5,000', order: 0 },
+  { id: 'jaribu',       name: 'Jaribu Tena',   swahiliName: 'JARIBU TENA',    color: '#DC3545', rarity: 4, quantity: null, claimable: false, subtitle: 'TENA', order: 1 },
+  { id: 'voucher_2000', name: 'Voucher 2,000', swahiliName: 'VOUCHER 2,000', color: '#F5B800', rarity: 5, quantity: 50,  claimable: true, amount: '2,000', order: 2 },
+  { id: 'cap',          name: 'Cap / Kofia',   swahiliName: 'CAP / KOFIA',   color: '#007BFF', rarity: 6, quantity: 33,  claimable: true, order: 3 },
+  { id: 'bracelets',    name: 'Bracelets',     swahiliName: 'BRACELETS',     color: '#555555', rarity: 2, quantity: 375, claimable: true, order: 4 },
+  { id: 'pen_keyholder',name: 'Pen + Key Holder',swahiliName:'PEN + KEY HOLDER',color:'#17A2B8',rarity: 2, quantity: 125, claimable: true, order: 5 },
+  { id: 'voucher_500',  name: 'Voucher 500',   swahiliName: 'VOUCHER 500',   color: '#8B2F8B', rarity: 3, quantity: 100, claimable: true, amount: '500', order: 6 },
+  { id: 'ahsante',      name: 'Ahsante kwa Kushiriki', swahiliName: 'AHSANTE KWA KUSHIRIKI', color: '#6C757D', rarity: 3, quantity: null, claimable: false, order: 7 },
 ]
 
-const COLORS = ['#F26522', '#DC3545', '#F5B800', '#007BFF', '#555555', '#17A2B8', '#8B2F8B', '#6C757D', '#28A745', '#FF6B9D', '#FFD700', '#E83E8C']
-
+const COLORS = ['#F26522','#DC3545','#F5B800','#007BFF','#555555','#17A2B8','#8B2F8B','#6C757D','#28A745','#FF6B9D','#FFD700','#E83E8C']
 let colorIndex = 0
 function nextColor(): string {
-  const c = COLORS[colorIndex % COLORS.length]
-  colorIndex++
-  return c
+  const c = COLORS[colorIndex % COLORS.length]; colorIndex++; return c
 }
 
-const saved = localStorage.getItem('halotel_prizes')
-const state = reactive<{ prizes: Prize[] }>({
-  prizes: saved ? JSON.parse(saved) : [...defaultPrizes],
-})
+const prizes = ref<Prize[]>([])
+const loading = ref(true)
+let initialized = false
 
-function save() {
-  localStorage.setItem('halotel_prizes', JSON.stringify(state.prizes))
+function initStore() {
+  if (initialized) return
+  initialized = true
+  const q = query(collection(db, 'prizes'), orderBy('order'))
+  onSnapshot(q, async (snap) => {
+    if (snap.empty) {
+      const batch = writeBatch(db)
+      defaultPrizes.forEach(p => batch.set(doc(db, 'prizes', p.id), p))
+      await batch.commit()
+      return
+    }
+    const loaded = snap.docs.map(d => d.data() as Prize)
+    // Auto-migrate prizes that are missing the rarity field (old schema)
+    const needsMigration = loaded.some(p => p.rarity === undefined || p.rarity === null)
+    if (needsMigration) {
+      const batch = writeBatch(db)
+      snap.docs.forEach(d => batch.delete(d.ref))
+      defaultPrizes.forEach(p => batch.set(doc(db, 'prizes', p.id), p))
+      await batch.commit()
+      // onSnapshot will fire again with fresh migrated data
+      return
+    }
+    prizes.value = loaded
+    loading.value = false
+  })
 }
+initStore()
 
-function resetDefaults() {
-  state.prizes = [...defaultPrizes]
-  save()
-}
-
-function addPrize(prize: Omit<Prize, 'id' | 'color'>) {
+async function addPrize(prize: Omit<Prize, 'id' | 'color' | 'order'>) {
   const id = 'prize_' + Date.now()
-  const color = nextColor()
-  state.prizes.push({ ...prize, id, color })
-  save()
+  await setDoc(doc(db, 'prizes', id), { ...prize, id, color: nextColor(), order: prizes.value.length })
 }
 
-function updatePrize(id: string, updates: Partial<Prize>) {
-  const idx = state.prizes.findIndex(p => p.id === id)
-  if (idx !== -1) {
-    state.prizes[idx] = { ...state.prizes[idx], ...updates }
-    save()
-  }
+async function updatePrize(id: string, updates: Partial<Prize>) {
+  await setDoc(doc(db, 'prizes', id), updates, { merge: true })
 }
 
-function deletePrize(id: string) {
-  state.prizes = state.prizes.filter(p => p.id !== id)
-  save()
+async function deletePrize(id: string) {
+  await deleteDoc(doc(db, 'prizes', id))
 }
 
-const totalProbability = computed(() =>
-  state.prizes.reduce((sum, p) => sum + p.probability, 0)
-)
+async function resetDefaults() {
+  const batch = writeBatch(db)
+  ;(await getDocs(collection(db, 'prizes'))).docs.forEach(d => batch.delete(d.ref))
+  defaultPrizes.forEach(p => batch.set(doc(db, 'prizes', p.id), p))
+  await batch.commit()
+}
 
-const totalQuantity = computed(() =>
-  state.prizes.reduce((sum, p) => sum + (p.quantity || 0), 0)
-)
+const totalQuantity = computed(() => prizes.value.reduce((s, p) => s + (p.quantity || 0), 0))
 
 export function usePrizeStore() {
   return {
-    prizes: computed(() => state.prizes),
-    totalProbability,
+    prizes: computed(() => prizes.value),
     totalQuantity,
-    addPrize,
-    updatePrize,
-    deletePrize,
-    resetDefaults,
+    loading: computed(() => loading.value),
+    addPrize, updatePrize, deletePrize, resetDefaults,
   }
 }
