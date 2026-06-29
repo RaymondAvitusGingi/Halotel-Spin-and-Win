@@ -23,9 +23,16 @@ function formatTime(timestamp: any) {
   if (!timestamp) return '';
   try {
     const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-    const hours = date.getHours().toString().padStart(2, '0');
-    const minutes = date.getMinutes().toString().padStart(2, '0');
-    return `saa ${hours}:${minutes}`;
+    const diffMs = new Date().getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+
+    if (diffMins < 1) return 'sasa hivi';
+    if (diffMins < 60) return `${diffMins}m ago`;
+
+    const hours = Math.floor(diffMins / 60);
+    if (hours < 24) return `${hours}h ago`;
+
+    return 'kitambo';
   } catch (e) {
     return '';
   }
