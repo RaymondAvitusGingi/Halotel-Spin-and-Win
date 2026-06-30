@@ -5,7 +5,7 @@ import type { Prize } from '@/hooks/usePrizeStore'
 import { Plus, Pencil, Trash2, X, Gift, Package, LayoutDashboard, Shield, LogOut, Upload, Trophy, Download, Star } from 'lucide-vue-next'
 import { initializeApp, deleteApp } from 'firebase/app'
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword } from 'firebase/auth'
-import { collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy } from 'firebase/firestore'
+import { collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, writeBatch } from 'firebase/firestore'
 import { auth, db, firebaseConfig } from '@/firebase'
 import braceletImg from '@/assets/prizes/bracelet.png'
 import capImg from '@/assets/prizes/cap.png'
@@ -154,12 +154,16 @@ function getPrizeThumb(prize: Prize): string | null {
 
 // ─── Participants (all spins) ─────────────────────────────────────────
 interface Winner {
-  id: string; name: string; phone: string; gender: string
+  id: string; name: string; phone: string;
   prizeId: string | null; prizeName: string | null; isClaimable: boolean | null
   timestamp: any
 }
 const winners = ref<Winner[]>([])
 const spinsFilter = ref<'all' | 'winners'>('all')
+const deletingSpins = ref(false)
+const spinToDelete = ref<string | null>(null)
+const showDeleteAllModal = ref(false)
+
 const filteredSpins = computed(() =>
   spinsFilter.value === 'winners'
     ? winners.value.filter(w => w.isClaimable)
@@ -173,19 +177,15 @@ function formatDate(ts: any): string {
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-function genderColor(g: string): string {
-  if (g === 'Mwanaume') return '#3b82f6'
-  if (g === 'Mwanamke') return '#ec4899'
-  return '#8b5cf6'
-}
+
 
 function exportWinnersCSV() {
   const rows = [
-    ['Name', 'Phone', 'Gender', 'Prize', 'Won?', 'Date'],
+    ['Name', 'Phone', 'Prize', 'Result', 'Date'],
     ...filteredSpins.value.map(w => [
-      w.name, w.phone, w.gender,
+      w.name, w.phone,
       w.prizeName || '—',
-      w.isClaimable ? 'YES' : 'NO',
+      w.isClaimable === true ? 'WIN' : w.isClaimable === false ? 'RETRY' : 'PENDING',
       formatDate(w.timestamp),
     ]),
   ]
@@ -194,6 +194,45 @@ function exportWinnersCSV() {
   a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
   a.download = `spins-${new Date().toISOString().split('T')[0]}.csv`
   a.click()
+}
+
+async function deleteOneSpin(id: string) {
+  spinToDelete.value = id
+}
+
+async function executeDeleteSpin() {
+  if (!spinToDelete.value) return
+  try {
+    await deleteDoc(doc(db, 'spins', spinToDelete.value))
+    spinToDelete.value = null
+  } catch (e) {
+    alert('Failed to delete.')
+  }
+}
+
+function promptDeleteAll() {
+  if (winners.value.length === 0) return
+  showDeleteAllModal.value = true
+}
+
+async function executeDeleteAllSpins() {
+  showDeleteAllModal.value = false
+  deletingSpins.value = true
+  try {
+    const snap = await getDocs(collection(db, 'spins'))
+    const docs = snap.docs
+    for (let i = 0; i < docs.length; i += 500) {
+      const batch = writeBatch(db)
+      const chunk = docs.slice(i, i + 500)
+      chunk.forEach(d => batch.delete(d.ref))
+      await batch.commit()
+    }
+  } catch (e) {
+    console.error(e)
+    alert('Failed to delete all participants.')
+  } finally {
+    deletingSpins.value = false
+  }
 }
 
 // ─── Dashboard Stats ──────────────────────────────────────────────────
@@ -355,7 +394,11 @@ async function executeDeleteAdmin() {
             <button @click="openAdd" class="btn btn-primary"><Plus class="w-4 h-4" />Add Prize</button>
           </div>
           <div v-if="activeTab === 'winners'" style="display:flex;gap:10px">
-            <button @click="exportWinnersCSV" class="btn btn-outline btn-sm"><Download class="w-4 h-4" />Export CSV</button>
+            <button @click="exportWinnersCSV" class="btn btn-outline btn-sm" :disabled="winners.length === 0"><Download class="w-4 h-4" />Export CSV</button>
+            <button @click="promptDeleteAll" :disabled="deletingSpins || winners.length === 0" class="btn btn-danger btn-sm">
+              <Trash2 class="w-4 h-4" />
+              {{ deletingSpins ? 'Deleting...' : 'Delete All' }}
+            </button>
           </div>
           <div v-if="activeTab === 'admin'">
             <button @click="openAddAdmin" class="btn btn-primary"><Plus class="w-4 h-4" />New User</button>
@@ -510,20 +553,22 @@ async function executeDeleteAdmin() {
                     <th>Phone</th>
                     <th>Result</th>
                     <th>Date & Time</th>
+                    <th style="text-align: right;">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-for="w in filteredSpins" :key="w.id">
-                    <td>
+                    <td style="min-width: 220px;">
                       <div class="flex items-center gap-3">
-                        <div class="winner-avatar" :style="{ background: genderColor(w.gender) }">{{ w.name.charAt(0).toUpperCase() }}</div>
-                        <div>
-                          <div style="font-weight:700;font-size:14px;color:var(--slate-800)">{{ w.name }}</div>
-                          <div style="font-size:11px;color:var(--slate-400)">{{ w.gender }}</div>
+                        <div class="winner-avatar" style="background: #F26522">{{ (w.name || '?').charAt(0).toUpperCase() }}</div>
+                        <div style="display: flex; flex-direction: column; min-width: 0;">
+                          <div style="font-weight: 800; font-size: 15px; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ w.name || 'Unknown' }}</div>
                         </div>
                       </div>
                     </td>
-                    <td><span style="font-size:13px;color:var(--slate-600);font-weight:600">{{ w.phone }}</span></td>
+                    <td style="min-width: 140px;">
+                      <span style="font-size: 14px; color: #334155; font-weight: 700; font-family: monospace;">{{ w.phone }}</span>
+                    </td>
                     <td>
                       <div v-if="w.prizeName" class="flex items-center gap-2">
                         <span
@@ -532,11 +577,16 @@ async function executeDeleteAdmin() {
                             ? 'background:rgba(34,197,94,0.12);color:#16a34a;border:1px solid rgba(34,197,94,0.25)'
                             : 'background:rgba(100,116,139,0.12);color:#64748b;border:1px solid rgba(100,116,139,0.2)'"
                         >{{ w.isClaimable ? '🏆 WIN' : '🔄 NO WIN' }}</span>
-                        <span style="font-size:13px;font-weight:600;color:var(--slate-700)">{{ w.prizeName }}</span>
+                        <span style="font-size:13px;font-weight:700;color:#1e293b">{{ w.prizeName }}</span>
                       </div>
-                      <span v-else style="font-size:12px;color:var(--slate-400)">Spinning…</span>
+                      <span v-else style="font-size:12px;color:#94a3b8">Spinning…</span>
                     </td>
-                    <td><span style="font-size:12px;color:var(--slate-500)">{{ formatDate(w.timestamp) }}</span></td>
+                    <td style="min-width: 150px;"><span style="font-size:12px;color:#475569;font-weight:500">{{ formatDate(w.timestamp) }}</span></td>
+                    <td style="text-align: right;">
+                      <button @click="deleteOneSpin(w.id)" class="btn btn-sm btn-delete">
+                        <Trash2 class="w-3.5 h-3.5" />
+                      </button>
+                    </td>
                   </tr>
                   <tr v-if="filteredSpins.length === 0">
                     <td colspan="4" style="text-align:center;padding:60px;color:var(--slate-400)">
@@ -740,11 +790,51 @@ async function executeDeleteAdmin() {
         </div>
       </div>
     </div>
+
+    <!-- Delete Participant Confirm -->
+    <div v-if="spinToDelete" class="modal-overlay" @click.self="spinToDelete = null">
+      <div class="modal-content" style="max-width: 400px; text-align: center;">
+        <div style="font-size: 48px; margin-bottom: 16px;">👤</div>
+        <h3 style="font-size: 18px; font-weight: 800; color: var(--slate-800); margin-bottom: 8px;">Delete Participant?</h3>
+        <p style="color: var(--slate-500); font-size: 14px; margin-bottom: 24px;">This record will be removed permanently.</p>
+        <div class="flex justify-center gap-3">
+          <button @click="spinToDelete = null" class="btn btn-outline">Cancel</button>
+          <button @click="executeDeleteSpin" class="btn btn-danger">Delete</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Delete All Participants Confirm -->
+    <div v-if="showDeleteAllModal" class="modal-overlay" @click.self="showDeleteAllModal = false">
+      <div class="modal-content" style="max-width: 400px; text-align: center;">
+        <div style="font-size: 48px; margin-bottom: 16px;">🧨</div>
+        <h3 style="font-size: 18px; font-weight: 800; color: var(--slate-800); margin-bottom: 8px;">Delete ALL Records?</h3>
+        <p style="color: var(--slate-500); font-size: 14px; margin-bottom: 12px;">You are about to delete <strong>{{ winners.length }}</strong> participants.</p>
+        <p style="font-size: 13px; color: #dc2626; font-weight: 600; margin-bottom: 24px; padding: 10px; background: #fef2f2; border-radius: 8px; border: 1px solid #fecaca;">This action is irreversible!</p>
+        <div class="flex justify-center gap-3">
+          <button @click="showDeleteAllModal = false" class="btn btn-outline">Cancel</button>
+          <button @click="executeDeleteAllSpins" class="btn btn-danger">Yes, Delete Everything</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.admin-layout { display: flex; min-height: calc(100vh - 56px); background: #fafaf8; font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+.admin-layout {
+  --slate-50: #f8fafc;
+  --slate-100: #f1f5f9;
+  --slate-200: #e2e8f0;
+  --slate-300: #cbd5e1;
+  --slate-400: #94a3b8;
+  --slate-500: #64748b;
+  --slate-600: #475569;
+  --slate-700: #334155;
+  --slate-800: #1e293b;
+  --slate-900: #0f172a;
+  --orange: #F26522;
+  display: flex; min-height: calc(100vh - 56px); background: #fafaf8; font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
 .admin-layout-inner { display: flex; flex: 1; min-width: 0; }
 
 /* ── Sidebar ────────────────────────────────────────────────────────── */

@@ -146,9 +146,9 @@ const confetti = Array.from({ length: 80 }, (_, i) => ({
 /* ── Card ──────────────────────────────────────────────────── */
 .card {
   position: relative; z-index: 2;
-  width: 400px;
+  width: 390px;
   max-width: 95vw;
-  min-height: 480px;
+  min-height: 450px;
   background: linear-gradient(160deg, #F26522, #d94a00);
   border: 2px solid rgba(255,255,255,0.2);
   border-radius: 32px;

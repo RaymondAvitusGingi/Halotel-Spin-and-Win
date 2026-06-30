@@ -43,7 +43,6 @@ interface Participant {
   id: string;         // Firestore doc ID
   name: string;
   phone: string;
-  gender: 'Mwanaume' | 'Mwanamke';
   status: PStatus;
   prizeId: string | null;
   prizeName: string | null;
@@ -57,7 +56,7 @@ const selectedId    = ref<string | null>(null);
 const showRegistrationModal = ref(false);
 const addSubmitting = ref(false);
 const addError      = ref('');
-const addForm       = reactive({ name: '', phone: '+255 ', gender: '' as '' | 'Mwanaume' | 'Mwanamke' });
+const addForm       = reactive({ name: '', phone: '+255 ' });
 
 const selectedP = computed(() => participants.value.find(p => p.id === selectedId.value) ?? null);
 
@@ -96,7 +95,6 @@ onMounted(() => {
         id:          d.id,
         name:        data.name ?? '',
         phone:       data.phone ?? '',
-        gender:      data.gender ?? 'Mwanaume',
         status,
         prizeId:     data.prizeId   ?? null,
         prizeName:   data.prizeName ?? null,
@@ -125,12 +123,11 @@ async function addParticipant() {
   const phone = addForm.phone.trim();
   if (!name)                               { addError.value = 'Ingiza jina'; return; }
   if (phone.replace(/\D/g, '').length < 9) { addError.value = 'Namba ya simu'; return; }
-  if (!addForm.gender)                     { addError.value = 'Chagua jinsia'; return; }
 
   addSubmitting.value = true;
   try {
     const docRef = await addDoc(collection(db, 'spins'), {
-      name, phone, gender: addForm.gender,
+      name, phone,
       timestamp: serverTimestamp(),
       prizeId: null, prizeName: null, isClaimable: null,
     });
@@ -139,7 +136,7 @@ async function addParticipant() {
     showRegistrationModal.value = false;
     
     // reset form
-    addForm.name = ''; addForm.phone = '+255 '; addForm.gender = '';
+    addForm.name = ''; addForm.phone = '+255 ';
 
     // Wait for the snapshot to pick it up so we can spin optimistically
     setTimeout(() => {
@@ -280,19 +277,6 @@ watch(() => props.winResult, async (prize) => {
                 </div>
               </div>
 
-              <div>
-                <label class="block text-white text-[11px] font-bold mb-1 uppercase tracking-wider" style="text-shadow: 0 1px 2px rgba(0,0,0,0.2);">Jinsia</label>
-                <div class="flex gap-2">
-                  <button v-for="g in ['Mwanaume', 'Mwanamke']" :key="g"
-                    class="flex-1 py-2.5 rounded-xl text-sm font-bold border-2 transition-all"
-                    :class="addForm.gender === g ? 'bg-white text-[#E65C00] border-white shadow-lg' : 'bg-transparent text-white border-white/40 hover:border-white/70'"
-                    @click="addForm.gender = g as any"
-                  >
-                    {{ g === 'Mwanaume' ? '♂ Mwanaume' : '♀ Mwanamke' }}
-                  </button>
-                </div>
-              </div>
-
               <div v-if="addError" class="bg-red-500/20 text-white text-[12px] font-bold text-center py-2 px-3 rounded-lg border border-red-400/30">{{ addError }}</div>
 
               <button 
@@ -343,7 +327,7 @@ watch(() => props.winResult, async (prize) => {
               <img src="@/assets/Halote logo white-02.svg" alt="Halotel" style="height:28px;" />
             </div>
             
-            <h1 class="font-black text-white text-center leading-[0.85] tracking-tighter uppercase" style="font-size: clamp(65px, 8vw, 100px); -webkit-text-stroke: 4px #ff6a00; text-shadow: 0 1px 0 #d94a00, 0 2px 0 #d94a00, 0 3px 0 #d94a00, 0 4px 0 #c24200, 0 5px 0 #c24200, 0 6px 0 #c24200, 0 7px 0 #ab3a00, 0 8px 0 #ab3a00, 0 9px 0 #ab3a00, 0 10px 0 #8c2f00, 0 11px 0 #8c2f00, 0 15px 20px rgba(0,0,0,0.6);">
+            <h1 class="font-black text-white text-center leading-[0.85] tracking-tighter uppercase animate-floating" style="font-size: clamp(65px, 8vw, 100px); -webkit-text-stroke: 4px #ff6a00; text-shadow: 0 1px 0 #d94a00, 0 2px 0 #d94a00, 0 3px 0 #d94a00, 0 4px 0 #c24200, 0 5px 0 #c24200, 0 6px 0 #c24200, 0 7px 0 #ab3a00, 0 8px 0 #ab3a00, 0 9px 0 #ab3a00, 0 10px 0 #8c2f00, 0 11px 0 #8c2f00, 0 15px 20px rgba(0,0,0,0.6);">
               SPIN <br/>
               & WIN
             </h1>
@@ -407,7 +391,7 @@ watch(() => props.winResult, async (prize) => {
 
           <!-- Top: Big 77 Heart Logo (mirrors SPIN & WIN position) -->
           <div class="flex flex-col items-center gap-2 mb-2">
-            <img src="@/assets/Artboard 1.png" alt="Halotel 77" style="width: clamp(200px, 22vw, 300px); height: auto; filter: brightness(0) invert(1) drop-shadow(0 4px 12px rgba(0,0,0,0.3));" />
+            <img src="@/assets/Artboard 1.png" alt="Halotel 77" class="animate-floating" style="width: clamp(200px, 22vw, 300px); height: auto; filter: brightness(0) invert(1) drop-shadow(0 4px 12px rgba(0,0,0,0.3)); animation-delay: 0.5s;" />
           </div>
 
           <!-- Bottom: Jinsi Inavyofanya Kazi -->
@@ -530,12 +514,7 @@ watch(() => props.winResult, async (prize) => {
 .add-input:focus { border-color: #F26522; background: rgba(242,101,34,0.06); }
 
 .add-form-row2 { display: flex; gap: 6px; align-items: center; }
-.gender-btn {
-  padding: 7px 10px; border-radius: 8px; font-size: 11px; font-weight: 700;
-  background: rgba(255,255,255,0.04); border: 1.5px solid rgba(255,255,255,0.09);
-  color: rgba(255,255,255,0.5); cursor: pointer; transition: all 0.18s; white-space: nowrap;
-}
-.gender-btn--active { background: #F26522; border-color: #F26522; color: white; }
+
 
 .add-btn {
   flex: 1; padding: 7px 10px; border-radius: 8px;
@@ -670,6 +649,14 @@ watch(() => props.winResult, async (prize) => {
   display: flex; align-items: center; justify-content: center;
   box-shadow: 0 2px 8px rgba(0,0,0,0.2);
   margin-bottom: 8px;
+}
+
+@keyframes floating {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-15px); }
+}
+.animate-floating {
+  animation: floating 3.5s ease-in-out infinite;
 }
 
 @keyframes spin-anim { to { transform: rotate(360deg); } }

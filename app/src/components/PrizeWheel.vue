@@ -205,12 +205,6 @@ watch(() => props.rotation, (newRotation) => {
         <div class="font-bold leading-tight uppercase"
           style="font-size:9px;color:white;text-shadow:0 1px 4px rgba(0,0,0,1);letter-spacing:0.3px;"
         >{{ prize.swahiliName }}</div>
-        <div v-if="prize.quantity !== null" class="font-black leading-tight mt-0.5"
-          style="font-size:12px;color:white;text-shadow:0 1px 4px rgba(0,0,0,1);"
-        >{{ prize.quantity }}</div>
-        <div class="font-semibold leading-tight mt-0.5"
-          style="font-size:8.5px;color:rgba(255,255,255,0.85);text-shadow:0 1px 3px rgba(0,0,0,0.8);"
-        >{{ computeProbability(prize, prizes).toFixed(1) }}%</div>
       </div>
 
       <!-- Win flash -->

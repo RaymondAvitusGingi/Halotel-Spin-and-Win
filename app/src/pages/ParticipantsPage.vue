@@ -8,7 +8,6 @@ interface Spin {
   id: string;
   name: string;
   phone: string;
-  gender: 'Mwanaume' | 'Mwanamke' | string;
   prizeId: string | null;
   prizeName: string | null;
   isClaimable: boolean | null;
@@ -56,10 +55,8 @@ function formatTime(s: Spin) {
   } catch { return '—'; }
 }
 
-function avatarBg(gender: string) {
-  return gender === 'Mwanaume'
-    ? 'linear-gradient(135deg,#3b82f6,#1d4ed8)'
-    : 'linear-gradient(135deg,#ec4899,#9d174d)';
+function avatarBg() {
+  return 'linear-gradient(135deg,#F26522,#d94a00)';
 }
 </script>
 
@@ -105,7 +102,7 @@ function avatarBg(gender: string) {
       </div>
 
       <!-- Search + filter bar -->
-      <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;">
+      <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;align-items:center;">
         <div style="position:relative;flex:1;min-width:200px;">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="2" stroke-linecap="round"
             style="position:absolute;left:12px;top:50%;transform:translateY(-50%);pointer-events:none">
@@ -177,7 +174,7 @@ function avatarBg(gender: string) {
           <div style="display:flex;align-items:center;gap:10px;min-width:0;">
             <div :style="{
               width:'34px',height:'34px',borderRadius:'50%',flexShrink:0,
-              background:avatarBg(s.gender),
+              background:avatarBg(),
               display:'flex',alignItems:'center',justifyContent:'center',
               fontSize:'14px',fontWeight:'900',color:'white',
             }">{{ (s.name || '?').charAt(0).toUpperCase() }}</div>
@@ -185,7 +182,6 @@ function avatarBg(gender: string) {
               <div style="font-size:13px;font-weight:700;color:rgba(255,255,255,0.9);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
                 {{ s.name || '—' }}
               </div>
-              <div style="font-size:10px;color:rgba(255,255,255,0.6);">{{ s.gender }}</div>
             </div>
           </div>
 
