@@ -174,8 +174,8 @@ watch(() => props.rotation, (newRotation) => {
         v-for="(_, i) in prizes" :key="`div-${i}`"
         class="absolute"
         :style="{
-          left: '50%', top: '50%', width: '1px', height: '50%',
-          background: 'rgba(0,0,0,0.25)',
+          left: '50%', top: '50%', width: '2px', height: '50%',
+          background: 'rgba(255,255,255,0.15)',
           transformOrigin: 'top center',
           transform: `rotate(${i * segmentAngle}deg)`,
           zIndex: 3,

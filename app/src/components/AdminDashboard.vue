@@ -140,9 +140,39 @@ function save() {
     subtitle:  form.value.subtitle  || null,
     thumbnail: form.value.thumbnail || null,
   }
-  if (editingPrize.value) { updatePrize(editingPrize.value.id, payload) }
-  else { addPrize(payload) }
+  if (editingPrize.value) {
+    updatePrize(editingPrize.value.id, payload)
+  }
+  else {
+    addPrize(payload)
+  }
   showModal.value = false
+}
+
+const COLORS = [
+  '#F26522', // Halotel Orange
+  '#007BFF', // Blue
+  '#28A745', // Green
+  '#8B2F8B', // Purple
+  '#F5B800', // Yellow
+  '#DC3545', // Red
+  '#17A2B8', // Teal
+  '#555555', // Grey
+  '#FF6B9D', // Pink
+  '#FFD700', // Gold
+  '#6C757D', // Slate
+  '#E83E8C'  // Rose
+]
+
+async function fixPrizeColors() {
+  const batch = writeBatch(db)
+  prizes.value.forEach((p, i) => {
+    const expectedColor = COLORS[i % COLORS.length]
+    if (p.color !== expectedColor) {
+      batch.update(doc(db, 'prizes', p.id), { color: expectedColor })
+    }
+  })
+  await batch.commit()
 }
 
 function confirmDelete(id: string) { showDeleteConfirm.value = id }
@@ -154,7 +184,7 @@ function getPrizeThumb(prize: Prize): string | null {
 
 // ─── Participants (all spins) ─────────────────────────────────────────
 interface Winner {
-  id: string; name: string; phone: string;
+  id: string; phone: string;
   prizeId: string | null; prizeName: string | null; isClaimable: boolean | null
   timestamp: any
 }
@@ -181,9 +211,9 @@ function formatDate(ts: any): string {
 
 function exportWinnersCSV() {
   const rows = [
-    ['Name', 'Phone', 'Prize', 'Result', 'Date'],
+    ['Phone', 'Prize', 'Result', 'Date'],
     ...filteredSpins.value.map(w => [
-      w.name, w.phone,
+      w.phone,
       w.prizeName || '—',
       w.isClaimable === true ? 'WIN' : w.isClaimable === false ? 'RETRY' : 'PENDING',
       formatDate(w.timestamp),
@@ -390,6 +420,7 @@ async function executeDeleteAdmin() {
             </p>
           </div>
           <div v-if="activeTab === 'prizes'" style="display:flex;gap:10px">
+            <button @click="fixPrizeColors" class="btn btn-outline btn-sm" style="color:var(--slate-600)">Fix Colors</button>
             <button @click="resetDefaults" class="btn btn-outline btn-sm" style="color:#dc2626;border-color:#fecaca">Reset Defaults</button>
             <button @click="openAdd" class="btn btn-primary"><Plus class="w-4 h-4" />Add Prize</button>
           </div>
@@ -549,8 +580,7 @@ async function executeDeleteAdmin() {
               <table class="data-table">
                 <thead>
                   <tr>
-                    <th>Participant</th>
-                    <th>Phone</th>
+                    <th>Participant (Phone)</th>
                     <th>Result</th>
                     <th>Date & Time</th>
                     <th style="text-align: right;">Actions</th>
@@ -558,16 +588,13 @@ async function executeDeleteAdmin() {
                 </thead>
                 <tbody>
                   <tr v-for="w in filteredSpins" :key="w.id">
-                    <td style="min-width: 220px;">
+                    <td style="min-width: 200px;">
                       <div class="flex items-center gap-3">
-                        <div class="winner-avatar" style="background: #F26522">{{ (w.name || '?').charAt(0).toUpperCase() }}</div>
-                        <div style="display: flex; flex-direction: column; min-width: 0;">
-                          <div style="font-weight: 800; font-size: 15px; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ w.name || 'Unknown' }}</div>
+                        <div class="winner-avatar" style="background: #F26522">
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l2.28-2.28a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
                         </div>
+                        <span style="font-size: 15px; color: #1e293b; font-weight: 800; font-family: monospace;">{{ w.phone }}</span>
                       </div>
-                    </td>
-                    <td style="min-width: 140px;">
-                      <span style="font-size: 14px; color: #334155; font-weight: 700; font-family: monospace;">{{ w.phone }}</span>
                     </td>
                     <td>
                       <div v-if="w.prizeName" class="flex items-center gap-2">

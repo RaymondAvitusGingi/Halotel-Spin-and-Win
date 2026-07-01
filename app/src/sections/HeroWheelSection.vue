@@ -41,7 +41,6 @@ const prizeImgs: Record<string, string> = {
 type PStatus = 'pending' | 'spinning' | 'won' | 'no_win';
 interface Participant {
   id: string;         // Firestore doc ID
-  name: string;
   phone: string;
   status: PStatus;
   prizeId: string | null;
@@ -56,7 +55,7 @@ const selectedId    = ref<string | null>(null);
 const showRegistrationModal = ref(false);
 const addSubmitting = ref(false);
 const addError      = ref('');
-const addForm       = reactive({ name: '', phone: '+255 ' });
+const addForm       = reactive({ phone: '+255 ' });
 
 const selectedP = computed(() => participants.value.find(p => p.id === selectedId.value) ?? null);
 
@@ -93,7 +92,6 @@ onMounted(() => {
 
       return {
         id:          d.id,
-        name:        data.name ?? '',
         phone:       data.phone ?? '',
         status,
         prizeId:     data.prizeId   ?? null,
@@ -119,15 +117,13 @@ onUnmounted(() => unsub?.());
 // ── Add participant & Auto Spin ─────────────────────────────
 async function addParticipant() {
   addError.value = '';
-  const name  = addForm.name.trim();
   const phone = addForm.phone.trim();
-  if (!name)                               { addError.value = 'Ingiza jina'; return; }
   if (phone.replace(/\D/g, '').length < 9) { addError.value = 'Namba ya simu'; return; }
 
   addSubmitting.value = true;
   try {
     const docRef = await addDoc(collection(db, 'spins'), {
-      name, phone,
+      phone,
       timestamp: serverTimestamp(),
       prizeId: null, prizeName: null, isClaimable: null,
     });
@@ -136,7 +132,7 @@ async function addParticipant() {
     showRegistrationModal.value = false;
     
     // reset form
-    addForm.name = ''; addForm.phone = '+255 ';
+    addForm.phone = '+255 ';
 
     // Wait for the snapshot to pick it up so we can spin optimistically
     setTimeout(() => {
@@ -161,8 +157,8 @@ function onWheelSpin() {
 }
 
 // ── Win celebration modal & retry toast ─────────────────────
-const celebration = ref<{ winnerName: string; prize: Prize; prizeImg: string | null } | null>(null);
-const retryToast  = ref<string | null>(null); // winner name during retry
+const celebration = ref<{ winnerPhone: string; prize: Prize; prizeImg: string | null } | null>(null);
+const retryToast  = ref<string | null>(null); // winner phone during retry
 
 function dismissCelebration() {
   celebration.value = null;
@@ -183,7 +179,7 @@ watch(() => props.winResult, async (prize) => {
     // Give them one more spin — don't record a result yet
     p.hasRetried = true;
     p.status     = 'pending';
-    retryToast.value = p.name;
+    retryToast.value = p.phone;
     setTimeout(() => { retryToast.value = null; }, 3000);
     emit('spinAgain');
     return;
@@ -203,7 +199,7 @@ watch(() => props.winResult, async (prize) => {
   if (pType === 'win' || pType === 'thanks') {
     // Show celebration modal for both wins and losses
     celebration.value = {
-      winnerName: p.name,
+      winnerPhone: p.phone,
       prize,
       prizeImg: prizeImgs[prize.id] ?? null,
     };
@@ -238,7 +234,7 @@ watch(() => props.winResult, async (prize) => {
   <!-- Win celebration modal -->
   <WinCelebrationModal
     v-if="celebration"
-    :winnerName="celebration.winnerName"
+    :winnerName="celebration.winnerPhone"
     :prize="celebration.prize"
     :prizeImg="celebration.prizeImg"
     @close="dismissCelebration"
@@ -259,16 +255,11 @@ watch(() => props.winResult, async (prize) => {
             <img src="@/assets/Halote logo white-02.svg" alt="Halotel" class="h-8 mb-4" />
             
             <h2 class="text-white font-black text-xl mb-6 text-center" style="letter-spacing:1px; text-transform:uppercase; text-shadow: 0 2px 4px rgba(0,0,0,0.3);">
-              Ingiza taarifa <br/>
+              Ingiza namba <br/>
               <span style="color: #FFD700; text-shadow: 0 1px 3px rgba(0,0,0,0.4);">kuanza spin</span>
             </h2>
 
             <div class="w-full flex flex-col gap-4">
-              <div>
-                <label class="block text-white text-[11px] font-bold mb-1 uppercase tracking-wider" style="text-shadow: 0 1px 2px rgba(0,0,0,0.2);">Jina</label>
-                <input v-model="addForm.name" class="w-full rounded-xl px-4 py-3 text-[#333] font-semibold placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#FFD700] transition-all" style="background: rgba(255,255,255,0.9); border: 3px solid #c24200;" placeholder="Jina lako..." />
-              </div>
-
               <div>
                 <label class="block text-white text-[11px] font-bold mb-1 uppercase tracking-wider" style="text-shadow: 0 1px 2px rgba(0,0,0,0.2);">Namba ya simu</label>
                 <div class="relative flex items-center">

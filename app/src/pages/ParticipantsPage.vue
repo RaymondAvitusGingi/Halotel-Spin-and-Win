@@ -6,7 +6,6 @@ import { db } from '@/firebase';
 
 interface Spin {
   id: string;
-  name: string;
   phone: string;
   prizeId: string | null;
   prizeName: string | null;
@@ -37,7 +36,7 @@ const filtered = computed(() => {
   if (filter.value === 'won')  list = list.filter(s => s.isClaimable === true);
   if (filter.value === 'lost') list = list.filter(s => s.isClaimable === false || s.isClaimable === null);
   const q = search.value.trim().toLowerCase();
-  if (q) list = list.filter(s => s.name?.toLowerCase().includes(q) || s.phone?.includes(q));
+  if (q) list = list.filter(s => s.phone?.includes(q));
   return list;
 });
 
@@ -143,13 +142,12 @@ function avatarBg() {
       <div v-else style="display:flex;flex-direction:column;gap:6px;">
         <!-- Header row -->
         <div style="
-          display:grid;grid-template-columns:40px 1fr 1fr 1fr 120px 130px;gap:12px;
+          display:grid;grid-template-columns:40px 1.5fr 1fr 120px 130px;gap:12px;
           padding:8px 16px;font-size:10px;font-weight:800;letter-spacing:1.5px;
           color:rgba(255,255,255,0.6);text-transform:uppercase;
         ">
           <div>#</div>
-          <div>Jina</div>
-          <div>Simu</div>
+          <div>Mshiriki (Simu)</div>
           <div>Zawadi</div>
           <div>Hali</div>
           <div>Wakati</div>
@@ -159,7 +157,7 @@ function avatarBg() {
         <div
           v-for="(s, idx) in filtered" :key="s.id"
           style="
-            display:grid;grid-template-columns:40px 1fr 1fr 1fr 120px 130px;gap:12px;align-items:center;
+            display:grid;grid-template-columns:40px 1.5fr 1fr 120px 130px;gap:12px;align-items:center;
             padding:12px 16px;border-radius:12px;
             background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);
             transition:background 0.2s;
@@ -170,24 +168,19 @@ function avatarBg() {
           <!-- # -->
           <div style="font-size:11px;font-weight:800;color:rgba(255,255,255,0.5);">{{ idx + 1 }}</div>
 
-          <!-- Name + avatar -->
+          <!-- Phone + avatar -->
           <div style="display:flex;align-items:center;gap:10px;min-width:0;">
             <div :style="{
               width:'34px',height:'34px',borderRadius:'50%',flexShrink:0,
               background:avatarBg(),
               display:'flex',alignItems:'center',justifyContent:'center',
-              fontSize:'14px',fontWeight:'900',color:'white',
-            }">{{ (s.name || '?').charAt(0).toUpperCase() }}</div>
-            <div style="min-width:0;">
-              <div style="font-size:13px;font-weight:700;color:rgba(255,255,255,0.9);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-                {{ s.name || '—' }}
-              </div>
+              fontSize:'12px',fontWeight:'900',color:'white',
+            }">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l2.28-2.28a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
             </div>
-          </div>
-
-          <!-- Phone -->
-          <div style="font-size:12px;color:rgba(255,255,255,0.8);font-family:monospace;">
-            {{ s.phone || '—' }}
+            <div style="font-size:14px;font-weight:700;color:rgba(255,255,255,0.9);font-family:monospace;">
+              {{ s.phone || '—' }}
+            </div>
           </div>
 
           <!-- Prize -->

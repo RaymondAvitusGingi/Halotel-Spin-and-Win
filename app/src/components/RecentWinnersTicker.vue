@@ -3,7 +3,7 @@ import { computed } from 'vue';
 
 interface Participant {
   id: string;
-  name: string;
+  phone: string;
   prizeName: string | null;
   isClaimable: boolean | null;
   timestamp?: any;
@@ -45,7 +45,7 @@ function formatTime(timestamp: any) {
       <div class="ticker-content">
         <div v-for="(p, idx) in [...recentResults, ...recentResults]" :key="p.id + '-' + idx" class="ticker-item">
           <span class="ticker-dot"></span>
-          <span class="ticker-name">{{ p.name }}</span>
+          <span class="ticker-name" style="font-family: monospace;">{{ p.phone }}</span>
           <span class="ticker-action">
             {{ p.isClaimable ? 'ameshinda' : 'amepata' }}
           </span>

@@ -62,11 +62,20 @@ const defaultPrizes: Prize[] = [
   { id: 'ahsante',      name: 'Ahsante kwa Kushiriki',   swahiliName: 'AHSANTE KWA KUSHIRIKI', color: '#6C757D', rarity: 3, quantity: null, prizeType: 'thanks', claimable: false, order: 8 },
 ]
 
-const COLORS = ['#F26522','#DC3545','#F5B800','#007BFF','#555555','#17A2B8','#8B2F8B','#6C757D','#28A745','#FF6B9D','#FFD700','#E83E8C']
-let colorIndex = 0
-function nextColor(): string {
-  const c = COLORS[colorIndex % COLORS.length]; colorIndex++; return c
-}
+const COLORS = [
+  '#F26522', // Halotel Orange
+  '#007BFF', // Blue
+  '#28A745', // Green
+  '#8B2F8B', // Purple
+  '#F5B800', // Yellow
+  '#DC3545', // Red
+  '#17A2B8', // Teal
+  '#555555', // Grey
+  '#FF6B9D', // Pink
+  '#FFD700', // Gold
+  '#6C757D', // Slate
+  '#E83E8C'  // Rose
+]
 
 const prizes = ref<Prize[]>([])
 const loading = ref(true)
@@ -102,7 +111,8 @@ initStore()
 
 async function addPrize(prize: Omit<Prize, 'id' | 'color' | 'order'>) {
   const id = 'prize_' + Date.now()
-  await setDoc(doc(db, 'prizes', id), { ...prize, id, color: nextColor(), order: prizes.value.length })
+  const color = COLORS[prizes.value.length % COLORS.length]
+  await setDoc(doc(db, 'prizes', id), { ...prize, id, color, order: prizes.value.length })
 }
 
 async function updatePrize(id: string, updates: Partial<Prize>) {
